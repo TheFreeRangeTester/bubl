@@ -293,7 +293,7 @@ enum BublSubcategory: String, CaseIterable, Identifiable {
         case .lifeFinances: isSpanish ? "Finanzas" : "Finances"
         case .lifeDecisions: isSpanish ? "Decisiones" : "Decisions"
         }
-    }
+        }
 
     var clusterLabel: String { rawValue }
 
