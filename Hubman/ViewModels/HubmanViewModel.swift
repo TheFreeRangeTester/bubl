@@ -5,8 +5,7 @@ import OSLog
 import Supabase
 
 enum SupabaseConfig {
-    private static let fallbackURL = "https://gmomqwmrasnhhpvizkpn.supabase.co"
-    private static let fallbackAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdtb21xd21yYXNuaGhwdml6a3BuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3Nzk4NDMsImV4cCI6MjA4OTM1NTg0M30.ooRb4LEwW8j1qGt7H2_jEHyCpJhilotQqRbmVenLmjM"
+    private static let fallbackURL = "https://example.supabase.co"
     private static let urlOverrideKey = "dev.supabase.url"
     private static let anonOverrideKey = "dev.supabase.anon"
 
@@ -24,16 +23,14 @@ enum SupabaseConfig {
         let override = UserDefaults.standard.string(forKey: urlOverrideKey) ?? ""
         if !override.isEmpty { return override }
         let bundled = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String) ?? ""
-        if !bundled.isEmpty { return bundled }
-        return fallbackURL
+        return bundled
     }
 
     static var runtimeAnonKey: String {
         let override = UserDefaults.standard.string(forKey: anonOverrideKey) ?? ""
         if !override.isEmpty { return override }
         let bundled = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String) ?? ""
-        if !bundled.isEmpty { return bundled }
-        return fallbackAnonKey
+        return bundled
     }
 
     static var client: SupabaseClient {

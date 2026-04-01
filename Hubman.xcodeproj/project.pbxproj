@@ -27,6 +27,8 @@
 		A00000000000000000000004 /* HubmanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HubmanModels.swift; sourceTree = "<group>"; };
 		A00000000000000000000005 /* Hubman.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hubman.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000006 /* Localization/Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localization/Localizable.xcstrings; sourceTree = "<group>"; };
+		A00000000000000000000007 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		A00000000000000000000008 /* Local.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.example.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +60,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000034 /* App */,
+				A00000000000000000000038 /* Config */,
 				A00000000000000000000035 /* Models */,
 				A00000000000000000000036 /* ViewModels */,
 				A00000000000000000000037 /* Views */,
@@ -104,6 +107,15 @@
 				A00000000000000000000002 /* ContentView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000038 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000007 /* Shared.xcconfig */,
+				A00000000000000000000008 /* Local.example.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -193,6 +205,7 @@
 /* Begin XCBuildConfiguration section */
 		A00000000000000000000061 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A00000000000000000000007 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -219,8 +232,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.patominer.Hubman;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdtb21xd21yYXNuaGhwdml6a3BuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3Nzk4NDMsImV4cCI6MjA4OTM1NTg0M30.ooRb4LEwW8j1qGt7H2_jEHyCpJhilotQqRbmVenLmjM;
-				SUPABASE_URL = "https://gmomqwmrasnhhpvizkpn.supabase.co";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -230,6 +241,7 @@
 		};
 		A00000000000000000000062 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A00000000000000000000007 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -257,8 +269,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.patominer.Hubman;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdtb21xd21yYXNuaGhwdml6a3BuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3Nzk4NDMsImV4cCI6MjA4OTM1NTg0M30.ooRb4LEwW8j1qGt7H2_jEHyCpJhilotQqRbmVenLmjM;
-				SUPABASE_URL = "https://gmomqwmrasnhhpvizkpn.supabase.co";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

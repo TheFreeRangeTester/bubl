@@ -1,0 +1,5 @@
+// Committed defaults. Keep real values in Local.xcconfig, which is gitignored.
+SUPABASE_URL =
+SUPABASE_ANON_KEY =
+
+#include? "Local.xcconfig"
