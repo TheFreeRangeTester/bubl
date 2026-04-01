@@ -1,5 +1,6 @@
 import AuthenticationServices
 import SwiftUI
+import UIKit
 
 private func uiText(_ es: String, _ en: String) -> String {
     Locale.current.language.languageCode?.identifier == "es" ? es : en
@@ -7,6 +8,7 @@ private func uiText(_ es: String, _ en: String) -> String {
 
 struct ContentView: View {
     @Environment(AuthManager.self) private var authManager
+    @State private var isPreviewMode = false
 
     var body: some View {
         Group {
@@ -15,7 +17,15 @@ struct ContentView: View {
                 ProgressView()
                     .tint(BublPalette.ink)
             case .signedOut:
-                OnboardingView()
+                if isPreviewMode {
+                    PreviewExperienceView {
+                        isPreviewMode = false
+                    }
+                } else {
+                    OnboardingView {
+                        isPreviewMode = true
+                    }
+                }
             case .signedIn:
                 FeedView()
             }
@@ -31,6 +41,15 @@ private struct OnboardingView: View {
     @State private var errorMessage: String?
     @State private var devURL = SupabaseConfig.runtimeURL
     @State private var devAnonKey = SupabaseConfig.runtimeAnonKey
+    let onEnterPreviewMode: () -> Void
+
+    private var bundledURL: String {
+        SupabaseConfig.runtimeURL
+    }
+
+    private var bundledAnonKey: String {
+        SupabaseConfig.runtimeAnonKey
+    }
 
     var body: some View {
         ScrollView {
@@ -76,7 +95,11 @@ private struct OnboardingView: View {
                         do {
                             try await authManager.signInAnonymouslyForDevelopment()
                         } catch {
-                            errorMessage = uiText("No se pudo entrar en modo desarrollo.", "Could not enter development mode.")
+                            let details = error.localizedDescription
+                            errorMessage = uiText(
+                                "No se pudo entrar en modo desarrollo. \(details)",
+                                "Could not enter development mode. \(details)"
+                            )
                         }
                     }
                 } label: {
@@ -89,26 +112,84 @@ private struct OnboardingView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
 
+                #if targetEnvironment(simulator)
+                Button(action: onEnterPreviewMode) {
+                    Text(uiText("Explorar UI sin login", "Explore UI without login"))
+                        .font(.bublRounded(.subheadline, weight: .semibold))
+                        .foregroundStyle(BublPalette.ink)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(BublPalette.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(BublPalette.ornament.opacity(0.12), lineWidth: 1)
+                        )
+                }
+                #endif
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text(uiText("Config dev", "Dev config"))
                         .font(.bublRounded(.footnote, weight: .semibold))
                         .foregroundStyle(BublPalette.muted)
 
-                    TextField("Supabase URL", text: $devURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.bublRounded(.footnote))
-                        .padding(10)
-                        .background(BublPalette.card)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Text(configStatusText)
+                        .font(.bublRounded(.caption))
+                        .foregroundStyle(BublPalette.muted)
 
-                    TextField("Supabase ANON key", text: $devAnonKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.bublRounded(.footnote))
-                        .padding(10)
-                        .background(BublPalette.card)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(uiText("Supabase URL", "Supabase URL"))
+                                .font(.bublRounded(.footnote, weight: .semibold))
+                                .foregroundStyle(BublPalette.muted)
+
+                            Spacer()
+
+                            Button(uiText("Pegar", "Paste")) {
+                                if let pastedText = pastedFromClipboard() {
+                                    devURL = pastedText
+                                    errorMessage = nil
+                                }
+                            }
+                            .font(.bublRounded(.caption, weight: .semibold))
+                            .foregroundStyle(BublPalette.ink)
+                        }
+
+                        TextField("Supabase URL", text: $devURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.bublRounded(.footnote))
+                            .padding(10)
+                            .background(BublPalette.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(uiText("Supabase ANON key", "Supabase ANON key"))
+                                .font(.bublRounded(.footnote, weight: .semibold))
+                                .foregroundStyle(BublPalette.muted)
+
+                            Spacer()
+
+                            Button(uiText("Pegar", "Paste")) {
+                                if let pastedText = pastedFromClipboard() {
+                                    devAnonKey = pastedText
+                                    errorMessage = nil
+                                }
+                            }
+                            .font(.bublRounded(.caption, weight: .semibold))
+                            .foregroundStyle(BublPalette.ink)
+                        }
+
+                        TextField("Supabase ANON key", text: $devAnonKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.bublRounded(.footnote))
+                            .padding(10)
+                            .background(BublPalette.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
 
                     Button("Guardar config dev") {
                         SupabaseConfig.saveOverrides(
@@ -119,6 +200,25 @@ private struct OnboardingView: View {
                     }
                     .font(.bublRounded(.footnote, weight: .semibold))
                     .foregroundStyle(BublPalette.ink)
+
+                    Button(uiText("Usar config integrada", "Use bundled config")) {
+                        devURL = bundledURL
+                        devAnonKey = bundledAnonKey
+                        errorMessage = bundledAnonKey.isEmpty
+                            ? uiText("La app no trae una ANON key integrada en este build.", "This build does not include a bundled ANON key.")
+                            : uiText("Config integrada cargada.", "Bundled config loaded.")
+                    }
+                    .font(.bublRounded(.footnote, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
+
+                    Button(uiText("Reset config dev", "Reset dev config")) {
+                        SupabaseConfig.clearOverrides()
+                        devURL = SupabaseConfig.runtimeURL
+                        devAnonKey = SupabaseConfig.runtimeAnonKey
+                        errorMessage = uiText("Config dev reseteada.", "Dev config reset.")
+                    }
+                    .font(.bublRounded(.footnote, weight: .semibold))
+                    .foregroundStyle(BublPalette.muted)
                 }
 
                 if let errorMessage {
@@ -130,6 +230,26 @@ private struct OnboardingView: View {
             .padding(24)
         }
         .background(BublPalette.page.ignoresSafeArea())
+    }
+
+    private var configStatusText: String {
+        let currentURL = devURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentAnonKey = devAnonKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundledKeyAvailable = !bundledAnonKey.isEmpty
+        return uiText(
+            "URL actual: \(currentURL.isEmpty ? "vacia" : "ok") | ANON actual: \(currentAnonKey.isEmpty ? "vacia" : "ok (\(currentAnonKey.count))") | Key integrada: \(bundledKeyAvailable ? "si" : "no")",
+            "Current URL: \(currentURL.isEmpty ? "empty" : "ok") | Current ANON: \(currentAnonKey.isEmpty ? "empty" : "ok (\(currentAnonKey.count))") | Bundled key: \(bundledKeyAvailable ? "yes" : "no")"
+        )
+    }
+
+    private func pastedFromClipboard() -> String? {
+        let pastedText = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !pastedText.isEmpty else {
+            errorMessage = uiText("El portapapeles está vacío.", "Clipboard is empty.")
+            return nil
+        }
+
+        return pastedText
     }
 
     private func handleAuth(_ result: Result<ASAuthorization, Error>) {
@@ -153,6 +273,343 @@ private struct OnboardingView: View {
                 }
             }
         }
+    }
+}
+
+private struct PreviewExperienceView: View {
+    @State private var myBubl = PreviewData.myBubl
+    @State private var related = PreviewData.relatedBubls
+    @State private var selectedForReactions: Bubl?
+    @State private var selectedForReport: Bubl?
+    @State private var showingPostFlow = false
+
+    let onExit: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(uiText("Modo preview del simulador. Nada de esto toca Supabase todavía.", "Simulator preview mode. None of this touches Supabase yet."))
+                        .font(.bublRounded(.footnote))
+                        .foregroundStyle(BublPalette.muted)
+
+                    Button {
+                        showingPostFlow = true
+                    } label: {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(uiText("Probar flow de publicación", "Try posting flow"))
+                                .font(.bublRounded(.headline, weight: .semibold))
+                                .foregroundStyle(BublPalette.ink)
+                            Text(uiText("Recorre el onboarding de post y simula publicar localmente.", "Go through the posting onboarding and simulate a local publish."))
+                                .font(.bublRounded(.subheadline))
+                                .foregroundStyle(BublPalette.muted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
+                        .background(
+                            LinearGradient(
+                                colors: [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.55)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    SectionHeader(
+                        title: uiText("Tu semana", "Your week"),
+                        subtitle: uiText("Una publicación mock para diseñar el estado con contenido propio.", "A mock post so you can design the state with your own content.")
+                    )
+                    BublCardView(bubl: myBubl, isOwnPost: true)
+
+                    SectionHeader(
+                        title: uiText("Tu burbuja", "Your bubble"),
+                        subtitle: uiText("Mock data para revisar densidad, cards y navegación.", "Mock data to review density, cards, and navigation.")
+                    )
+
+                    ForEach(related) { bubl in
+                        BublCardView(bubl: bubl, isOwnPost: false)
+                            .onTapGesture { selectedForReactions = bubl }
+                            .onLongPressGesture { selectedForReport = bubl }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("bubl")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(uiText("Salir preview", "Exit preview"), action: onExit)
+                        .font(.bublRounded(.subheadline))
+                        .tint(BublPalette.muted)
+                }
+            }
+            .sheet(isPresented: $showingPostFlow) {
+                PreviewPostFlowSheet { previewBubl in
+                    myBubl = previewBubl
+                }
+            }
+            .sheet(item: $selectedForReactions) { bubl in
+                PreviewReactionSheetView(bubl: bubl)
+            }
+            .sheet(item: $selectedForReport) { bubl in
+                PreviewReportView(reportedBublID: bubl.id)
+            }
+            .background(BublPalette.page)
+        }
+    }
+}
+
+private struct PreviewPostFlowSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var postViewModel = PostViewModel()
+    @State private var step = 1
+    @State private var showMatchingState = false
+
+    let onPosted: (Bubl) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                VStack {
+                    if step == 1 {
+                        Step1View(viewModel: postViewModel) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                step = 2
+                            }
+                        }
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    } else {
+                        Step2View(
+                            viewModel: postViewModel,
+                            isSubmitting: postViewModel.isSubmitting,
+                            onBack: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    step = 1
+                                }
+                            },
+                            onShare: submit
+                        )
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                }
+
+                if showMatchingState {
+                    MatchingBubbleView(message: postViewModel.matchingPrompt)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: step)
+            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: showMatchingState)
+            .background(BublPalette.page.ignoresSafeArea())
+        }
+    }
+
+    private func submit() {
+        postViewModel.trimLimits()
+
+        if BublGuardrails.containsCrisisLanguage(postViewModel.step2Text) {
+            postViewModel.showCrisisPrompt = true
+        }
+
+        guard postViewModel.canShare else {
+            postViewModel.submitError = uiText("Completá las dos partes antes de publicar.", "Complete both parts before publishing.")
+            return
+        }
+
+        let activity = postViewModel.composedActivityText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let feeling = postViewModel.step2Text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let validationError = BublGuardrails.validationError(activity: activity, feeling: feeling) {
+            postViewModel.submitError = validationError
+            return
+        }
+
+        Task {
+            postViewModel.isSubmitting = true
+            withAnimation { showMatchingState = true }
+            try? await Task.sleep(for: .milliseconds(900))
+
+            let previewBubl = PreviewData.makeMyBubl(activityText: activity, feelingText: feeling)
+            onPosted(previewBubl)
+
+            postViewModel.isSubmitting = false
+            dismiss()
+        }
+    }
+}
+
+private struct PreviewReactionSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let bubl: Bubl
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                BublCardView(bubl: bubl, isOwnPost: false)
+
+                Text(uiText("Interacciones cortas", "Short reactions"))
+                    .font(.bublRounded(.headline, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
+
+                ForEach(ReactionKind.allCases) { kind in
+                    HStack {
+                        Text(kind.label)
+                            .font(.bublRounded(.body, weight: .semibold))
+                        Spacer()
+                        Text("\(PreviewData.reactionCount(for: kind))")
+                            .font(.bublRounded(.body))
+                            .foregroundStyle(BublPalette.muted)
+                    }
+                    .padding(14)
+                    .background(BublPalette.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                Text(uiText("Preview local: acá después conectamos la reacción real.", "Local preview: we'll wire the real reaction flow here later."))
+                    .font(.bublRounded(.footnote))
+                    .foregroundStyle(BublPalette.muted)
+
+                Spacer()
+            }
+            .padding(16)
+            .navigationTitle(uiText("Acompañar", "Support"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(String(localized: "common.done")) { dismiss() }
+                }
+            }
+            .background(BublPalette.page)
+        }
+    }
+}
+
+private struct PreviewReportView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let reportedBublID: UUID
+
+    @State private var selectedReason = "Datos personales"
+    @State private var showConfirmation = false
+
+    private let reasons = [
+        "Datos personales",
+        "Acoso o odio",
+        "Contenido sexual",
+        "Autolesion o crisis",
+        "Spam"
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(uiText("Reportar publicación", "Report post"))
+                    .font(.bublRounded(.title3, weight: .semibold))
+
+                Picker("Motivo", selection: $selectedReason) {
+                    ForEach(reasons, id: \.self) { reason in
+                        Text(reason).tag(reason)
+                    }
+                }
+                .pickerStyle(.inline)
+
+                Button(uiText("Enviar preview", "Send preview")) {
+                    showConfirmation = true
+                }
+                .buttonStyle(BublPrimaryButtonStyle())
+
+                Text(uiText("Preview local del flujo de reporte. No envía nada todavía.", "Local preview of the report flow. It does not send anything yet."))
+                    .font(.bublRounded(.footnote))
+                    .foregroundStyle(BublPalette.muted)
+
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle(String(localized: "report.nav"))
+            .navigationBarTitleDisplayMode(.inline)
+            .alert("Gracias", isPresented: $showConfirmation) {
+                Button("OK") { dismiss() }
+            } message: {
+                Text(String(localized: "report.done.body"))
+            }
+            .background(BublPalette.page)
+        }
+    }
+}
+
+private enum PreviewData {
+    static var myBubl: Bubl {
+        makeMyBubl(
+            activityText: uiText("trabajando en una app nueva con demasiadas ideas al mismo tiempo", "working on a new app with too many ideas at once"),
+            feelingText: uiText("me entusiasma mucho, pero también me cuesta cerrar y no perderme en detalles.", "I am really excited, but it is also hard to finish and not get lost in details.")
+        )
+    }
+
+    static var relatedBubls: [Bubl] {
+        [
+            makeRelatedBubl(
+                activityText: uiText("armando un side project de noche", "building a side project at night"),
+                feelingText: uiText("me está costando bajar la ansiedad de querer que salga perfecto.", "I am struggling to calm the anxiety of wanting it to be perfect.")
+            ),
+            makeRelatedBubl(
+                activityText: uiText("reordenando mi semana para enfocarme mejor", "reworking my week to focus better"),
+                feelingText: uiText("me sirve poner límites, pero todavía siento culpa cuando corto.", "Setting boundaries helps, but I still feel guilty when I stop.")
+            ),
+            makeRelatedBubl(
+                activityText: uiText("volviendo a diseñar algo desde cero", "starting to design something from scratch again"),
+                feelingText: uiText("me gusta sentir que vuelve la energía creativa, aunque voy lento.", "It feels good to have creative energy back, even if I am going slowly.")
+            )
+        ]
+    }
+
+    static func reactionCount(for kind: ReactionKind) -> Int {
+        switch kind {
+        case .sameHere: return 8
+        case .iGetIt: return 5
+        case .beenThere: return 3
+        case .rootingForYou: return 11
+        }
+    }
+
+    static func makeMyBubl(activityText: String, feelingText: String) -> Bubl {
+        Bubl(
+            id: UUID(),
+            userID: UUID(),
+            activityText: activityText,
+            feelingText: feelingText,
+            categoryID: BublCategory.work.rawValue,
+            subcategoryID: "work_side_projects",
+            topicID: "building_projects",
+            languageCode: Locale.current.language.languageCode?.identifier ?? "en",
+            clusterLabel: "work_side_projects",
+            weekID: WeekID.current(),
+            createdAt: .now,
+            expiresAt: Calendar.current.date(byAdding: .day, value: 7, to: .now) ?? .now,
+            isActive: true,
+            isFlagged: false
+        )
+    }
+
+    static func makeRelatedBubl(activityText: String, feelingText: String) -> Bubl {
+        Bubl(
+            id: UUID(),
+            userID: UUID(),
+            activityText: activityText,
+            feelingText: feelingText,
+            categoryID: BublCategory.work.rawValue,
+            subcategoryID: "work_side_projects",
+            topicID: "building_projects",
+            languageCode: Locale.current.language.languageCode?.identifier ?? "en",
+            clusterLabel: "work_side_projects",
+            weekID: WeekID.current(),
+            createdAt: .now,
+            expiresAt: Calendar.current.date(byAdding: .day, value: 7, to: .now) ?? .now,
+            isActive: true,
+            isFlagged: false
+        )
     }
 }
 
