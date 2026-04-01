@@ -98,7 +98,21 @@ Acceptance Criteria:
 - The post sheet dismisses only after the share flow returns success.
 - The feed refresh runs after a successful post so the user lands on the updated weekly bubble.
 
-## FEAT-9 Reactions without comments or chat
+## FEAT-9 Live bubl feed refresh on app entry and resume
+**Priority**: High
+**Status**: Done
+**Related Components**: `Hubman/Views/ContentView.swift`, `Hubman/ViewModels/HubmanViewModel.swift`, `supabase/migrations/20260401_live_bubl_feed_rpc.sql`
+
+Acceptance Criteria:
+- The feed refreshes from the backend when a signed-in user enters the main feed.
+- The feed refreshes again when the app returns from background to the active state.
+- Feed selection is query-driven and recalculated from current backend data instead of relying on a previously materialized match list.
+- The live refresh uses a single backend RPC to return the current user's anchor bubl and related bubls in one payload.
+- The refresh reloads both the current user's weekly anchor bubl and the related current-week bubls.
+- If new matching bubls were created while the user was away, they can appear after the next refresh without requiring the user to repost.
+- Pull to refresh continues to trigger the same live refresh path.
+
+## FEAT-10 Reactions without comments or chat
 **Priority**: Medium
 **Status**: Done
 **Related Components**: `Hubman/Views/ContentView.swift`, `Hubman/ViewModels/HubmanViewModel.swift`, `Hubman/Models/HubmanModels.swift`, `supabase/migrations/20260319_bubl_mvp_simplify.sql`
@@ -111,7 +125,7 @@ Acceptance Criteria:
 - Submitting a reaction upserts one reaction per `bubl_id,user_id` pair and reloads the sheet state.
 - The product copy explicitly states that there is no comments system or private chat in this flow.
 
-## FEAT-10 Reporting and moderation gating
+## FEAT-11 Reporting and moderation gating
 **Priority**: High
 **Status**: Done
 **Related Components**: `Hubman/Views/ContentView.swift`, `Hubman/Models/HubmanModels.swift`, `supabase/migrations/20260318_bubl_mvp.sql`
@@ -124,7 +138,7 @@ Acceptance Criteria:
 - The database flags a bubl after three reports through the `reports_flag_bubl_trigger` trigger.
 - Flagged bubls are excluded from the main feed by both row-level policies and feed queries.
 
-## FEAT-11 Localization by system language
+## FEAT-12 Localization by system language
 **Priority**: Medium
 **Status**: In Progress
 **Related Components**: `Hubman/Views/ContentView.swift`, `Hubman/Models/HubmanModels.swift`, `Hubman/ViewModels/HubmanViewModel.swift`, `Hubman/Localization/Localizable.xcstrings`
@@ -135,7 +149,7 @@ Acceptance Criteria:
 - The post flow, feed shell, reporting flow, and personalization state contain bilingual UI strings.
 - The app does not expose an in-app language picker and relies on system language selection.
 
-## FEAT-12 Current-week seed and embedding backfill tooling
+## FEAT-13 Current-week seed and embedding backfill tooling
 **Priority**: Medium
 **Status**: Done
 **Related Components**: `supabase/scripts/seed_bubls.mjs`, `supabase/scripts/backfill_bubl_embeddings.mjs`, `supabase/functions/generate-embedding/index.ts`

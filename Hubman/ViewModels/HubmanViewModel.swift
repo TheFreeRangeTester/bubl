@@ -766,7 +766,6 @@ final class FeedViewModel {
         category: "FeedSelection"
     )
     private var client: SupabaseClient { SupabaseConfig.client }
-    private let embeddingService = LegacyEmbeddingService()
 
     var myBubl: Bubl?
     var feed: [Bubl] = []
@@ -780,27 +779,32 @@ final class FeedViewModel {
         defer { isLoading = false }
 
         let weekID = WeekID.current()
-        let nowString = ISO8601DateFormatter().string(from: .now)
 
         log("Refreshing related bubls for user=\(currentUserID.uuidString) week=\(weekID)")
 
         do {
-            let mineResponse = try await client
-                .from("bubls")
-                .select()
-                .eq("user_id", value: currentUserID)
-                .eq("week_id", value: weekID)
-                .eq("is_active", value: true)
-                .eq("is_flagged", value: false)
-                .gt("expires_at", value: nowString)
-                .order("created_at", ascending: false)
-                .limit(1)
+            struct Params: Encodable {
+                let current_user_id: UUID
+                let current_week_id: String
+                let match_count: Int
+            }
+
+            let response = try await client
+                .rpc(
+                    "get_my_live_bubl_feed",
+                    params: Params(
+                        current_user_id: currentUserID,
+                        current_week_id: weekID,
+                        match_count: 12
+                    )
+                )
                 .execute()
 
-            let myRows = try JSONDecoder.bublDecoder.decode([Bubl].self, from: mineResponse.data)
-            myBubl = myRows.first
+            let payload = try JSONDecoder.bublDecoder.decode(FeedPayload.self, from: response.data)
+            myBubl = payload.myBubl
+            feed = payload.relatedBubls
 
-            guard let mine = myBubl else {
+            guard let myBubl else {
                 log("No own bubl found for current week; skipping related selection")
                 feed = []
                 errorMessage = nil
@@ -809,34 +813,16 @@ final class FeedViewModel {
 
             log(
                 """
-                Own bubl base id=\(mine.id.uuidString) category=\(mine.category.rawValue)
-                cluster=\(mine.clusterLabel ?? "nil") activity=\(mine.activityText)
+                Own bubl base id=\(myBubl.id.uuidString) category=\(myBubl.category.rawValue)
+                subcategory=\(myBubl.canonicalSubcategoryID ?? "nil") activity=\(myBubl.activityText)
                 """
             )
-
-            let allResponse = try await client
-                .from("bubls")
-                .select()
-                .eq("week_id", value: weekID)
-                .eq("is_active", value: true)
-                .eq("is_flagged", value: false)
-                .gt("expires_at", value: nowString)
-                .neq("user_id", value: currentUserID)
-                .order("created_at", ascending: false)
-                .limit(150)
-                .execute()
-
-            let allRows = try JSONDecoder.bublDecoder.decode([Bubl].self, from: allResponse.data)
-            let embeddingMatches = try? await embeddingService.matchBubls(bublID: mine.id, limit: 24)
-            if let embeddingMatches {
-                let summary = embeddingMatches
-                    .map { "\($0.id.uuidString)=\(String(format: "%.3f", $0.distance))" }
-                    .joined(separator: ", ")
-                log("Embedding ranking loaded count=\(embeddingMatches.count) matches=[\(summary)]")
-            } else {
-                log("Embedding ranking unavailable; falling back to heuristic ordering")
-            }
-            feed = curatedFeed(from: allRows, mine: mine, embeddingMatches: embeddingMatches ?? [])
+            log(
+                """
+                Live feed loaded from RPC count=\(feed.count)
+                results=\(self.describe(feed))
+                """
+            )
             errorMessage = nil
         } catch {
             log("Failed to refresh related bubls: \(error.localizedDescription)")
@@ -861,92 +847,6 @@ final class FeedViewModel {
         }
     }
 
-    private let maxEmbeddingDistance = 0.38
-    private let embeddingDistanceSlack = 0.08
-
-    private func curatedFeed(from items: [Bubl], mine: Bubl, embeddingMatches: [LegacyEmbeddingService.Match]) -> [Bubl] {
-        let orderedCategories = [mine.category] + mine.category.fallbackOrder
-        var selected: [Bubl] = []
-        var seen = Set<UUID>()
-        var activityFingerprintCounts: [String: Int] = [:]
-        let normalizedMineCluster = normalizedClusterLabel(for: mine)
-        let mineTokens = rankingTokens(for: mine)
-        let mineTopic = inferredTopic(for: mine)
-        let embeddingRanks = Dictionary(uniqueKeysWithValues: embeddingMatches.enumerated().map { ($1.id, $0) })
-        let embeddingDistances = Dictionary(uniqueKeysWithValues: embeddingMatches.map { ($0.id, $0.distance) })
-
-        log(
-            """
-            Curating related bubls with criterion=category+cluster+fallbacks primary=\(mine.category.rawValue)
-            cluster=\(normalizedMineCluster ?? "nil")
-            inferred_topic=\(mineTopic ?? "nil")
-            strict_cluster_mode=\(normalizedMineCluster != nil)
-            fallbacks=\(mine.category.fallbackOrder.map(\.rawValue).joined(separator: " > "))
-            candidates=\(items.count)
-            """
-        )
-
-        for category in orderedCategories {
-            if normalizedMineCluster != nil && category != mine.category {
-                log("Stopping before fallback category=\(category.rawValue) because strict_cluster_mode is enabled")
-                break
-            }
-
-            let categoryMatches = items
-                .filter { $0.category == category && !seen.contains($0.id) }
-                .sorted { rank(lhs: $0, rhs: $1, relativeTo: mine, mineTokens: mineTokens, embeddingRanks: embeddingRanks) }
-
-            let rawSameClusterMatches = categoryMatches.filter {
-                guard let normalizedMineCluster else { return false }
-                return normalizedClusterLabel(for: $0) == normalizedMineCluster
-            }
-            let sameClusterMatches = filterDistantEmbeddingMatches(
-                rawSameClusterMatches,
-                embeddingDistances: embeddingDistances
-            )
-            let otherCategoryMatches = categoryMatches.filter { candidate in
-                guard let normalizedMineCluster else { return true }
-                return normalizedClusterLabel(for: candidate) != normalizedMineCluster
-            }
-
-            log(
-                """
-                Category pass=\(category.rawValue)
-                same_cluster_matched=\(sameClusterMatches.count) same_cluster_candidates=\(self.describe(sameClusterMatches, relativeTo: mineTokens, embeddingRanks: embeddingRanks, embeddingDistances: embeddingDistances))
-                other_matched=\(otherCategoryMatches.count) other_candidates=\(self.describe(otherCategoryMatches, relativeTo: mineTokens, embeddingRanks: embeddingRanks, embeddingDistances: embeddingDistances))
-                """
-            )
-
-            for item in sameClusterMatches {
-                guard shouldInclude(item, fingerprintCounts: &activityFingerprintCounts) else { continue }
-                seen.insert(item.id)
-                selected.append(item)
-                if selected.count >= 12 {
-                    log("Related bubls final selection count=\(selected.count) results=\(self.describe(selected))")
-                    return selected
-                }
-            }
-
-            if normalizedMineCluster != nil && category == mine.category {
-                log("Strict cluster mode active; skipping other clusters and category fallbacks after same-cluster selection")
-                break
-            }
-
-            for item in otherCategoryMatches {
-                guard shouldInclude(item, fingerprintCounts: &activityFingerprintCounts) else { continue }
-                seen.insert(item.id)
-                selected.append(item)
-                if selected.count >= 12 {
-                    log("Related bubls final selection count=\(selected.count) results=\(self.describe(selected))")
-                    return selected
-                }
-            }
-        }
-
-        log("Related bubls final selection count=\(selected.count) results=\(self.describe(selected))")
-        return selected
-    }
-
     private func describe(_ bubls: [Bubl]) -> String {
         guard !bubls.isEmpty else { return "[]" }
         return bubls
@@ -954,152 +854,20 @@ final class FeedViewModel {
             .joined(separator: ", ")
     }
 
-    private func describe(_ bubls: [Bubl], relativeTo mineTokens: Set<String>, embeddingRanks: [UUID: Int], embeddingDistances: [UUID: Double]) -> String {
-        guard !bubls.isEmpty else { return "[]" }
-        return bubls
-            .map {
-                let score = similarityScore(for: $0, mineTokens: mineTokens, mineCluster: nil)
-                let embeddingRank = embeddingRanks[$0.id].map(String.init) ?? "nil"
-                let embeddingDistance = embeddingDistances[$0.id].map { String(format: "%.3f", $0) } ?? "nil"
-                return "\($0.id.uuidString){category=\($0.category.rawValue), subcategory=\($0.canonicalSubcategoryID ?? "nil"), topic=\(inferredTopic(for: $0) ?? "nil"), embedding_rank=\(embeddingRank), embedding_distance=\(embeddingDistance), score=\(String(format: "%.3f", score)), activity=\($0.activityText)}"
-            }
-            .joined(separator: ", ")
-    }
-
-    private func filterDistantEmbeddingMatches(_ candidates: [Bubl], embeddingDistances: [UUID: Double]) -> [Bubl] {
-        let distances = candidates.compactMap { embeddingDistances[$0.id] }
-        guard let bestDistance = distances.min() else {
-            return candidates
-        }
-
-        let threshold = min(maxEmbeddingDistance, bestDistance + embeddingDistanceSlack)
-        let filtered = candidates.filter { candidate in
-            guard let distance = embeddingDistances[candidate.id] else { return true }
-            return distance <= threshold
-        }
-
-        if filtered.count != candidates.count {
-            log("Filtered distant embedding matches best_distance=\(String(format: "%.3f", bestDistance)) threshold=\(String(format: "%.3f", threshold)) kept=\(filtered.count) dropped=\(candidates.count - filtered.count)")
-        }
-
-        return filtered.isEmpty ? candidates : filtered
-    }
-
-    private func normalizedClusterLabel(for bubl: Bubl) -> String? {
-        guard let cluster = bubl.canonicalSubcategoryID?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-              !cluster.isEmpty else {
-            return nil
-        }
-        return cluster
-    }
-
-    private func rank(lhs: Bubl, rhs: Bubl, relativeTo mine: Bubl, mineTokens: Set<String>, embeddingRanks: [UUID: Int]) -> Bool {
-        let lhsEmbeddingRank = embeddingRanks[lhs.id]
-        let rhsEmbeddingRank = embeddingRanks[rhs.id]
-
-        if let lhsEmbeddingRank, let rhsEmbeddingRank, lhsEmbeddingRank != rhsEmbeddingRank {
-            return lhsEmbeddingRank < rhsEmbeddingRank
-        }
-        if lhsEmbeddingRank != nil && rhsEmbeddingRank == nil {
-            return true
-        }
-        if lhsEmbeddingRank == nil && rhsEmbeddingRank != nil {
-            return false
-        }
-
-        let mineCluster = normalizedClusterLabel(for: mine)
-        let lhsScore = similarityScore(for: lhs, mineTokens: mineTokens, mineCluster: mineCluster)
-        let rhsScore = similarityScore(for: rhs, mineTokens: mineTokens, mineCluster: mineCluster)
-
-        if abs(lhsScore - rhsScore) > 0.001 {
-            return lhsScore > rhsScore
-        }
-
-        return lhs.createdAt > rhs.createdAt
-    }
-
-    private func similarityScore(for candidate: Bubl, mineTokens: Set<String>, mineCluster: String?) -> Double {
-        let candidateTokens = rankingTokens(for: candidate)
-        guard !mineTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
-
-        let overlap = mineTokens.intersection(candidateTokens)
-        let unionCount = mineTokens.union(candidateTokens).count
-        let jaccard = unionCount > 0 ? Double(overlap.count) / Double(unionCount) : 0
-
-        let properNounBoost = overlap.filter { $0.count >= 5 }.isEmpty ? 0.0 : 0.15
-        let phraseBoost = sharedPhraseBoost(candidate: candidate, mineTokens: mineTokens)
-        let topicBoost = inferredTopicBoost(for: candidate, mineTokens: mineTokens, mineCluster: mineCluster)
-
-        return jaccard + properNounBoost + phraseBoost + topicBoost
-    }
-
-    private func sharedPhraseBoost(candidate: Bubl, mineTokens: Set<String>) -> Double {
-        let combined = normalizedText("\(candidate.activityText) \(candidate.feelingText)")
-        let boosters = mineTokens.filter { token in token.count >= 6 && combined.contains(token) }
-        return boosters.isEmpty ? 0.0 : min(0.2, Double(boosters.count) * 0.05)
-    }
-
-    private func rankingTokens(for bubl: Bubl) -> Set<String> {
-        BublTopicInference.rankingTokens(activity: bubl.activityText, feeling: bubl.feelingText)
-    }
-
-    private func normalizedText(_ text: String) -> String {
-        BublTopicInference.normalizedText(text)
-    }
-
-    private func shouldInclude(_ bubl: Bubl, fingerprintCounts: inout [String: Int]) -> Bool {
-        let fingerprint = activityFingerprint(for: bubl)
-        let count = fingerprintCounts[fingerprint, default: 0]
-        let limit = duplicateLimit(for: bubl)
-
-        guard count < limit else {
-            log("Skipping duplicate-heavy candidate id=\(bubl.id.uuidString) subcategory=\(bubl.canonicalSubcategoryID ?? "nil") fingerprint=\(fingerprint)")
-            return false
-        }
-
-        fingerprintCounts[fingerprint] = count + 1
-        return true
-    }
-
-    private func duplicateLimit(for bubl: Bubl) -> Int {
-        if normalizedClusterLabel(for: bubl) == "music" {
-            return 3
-        }
-        return 2
-    }
-
-    private func activityFingerprint(for bubl: Bubl) -> String {
-        normalizedText(bubl.activityText)
-            .replacingOccurrences(of: #"\(\d+(?:st|nd|rd|th)? weekly variant\)"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func inferredTopicBoost(for candidate: Bubl, mineTokens: Set<String>, mineCluster: String?) -> Double {
-        let mineTopic = BublTopicInference.inferredTopic(tokens: mineTokens, cluster: mineCluster)
-        let candidateTopic = inferredTopic(for: candidate)
-
-        guard let mineTopic, let candidateTopic else { return 0 }
-        return mineTopic == candidateTopic ? 0.35 : 0
-    }
-
-    private func inferredTopic(for bubl: Bubl) -> String? {
-        if let topicID = bubl.canonicalTopicID, !topicID.isEmpty {
-            return topicID
-        }
-        guard normalizedClusterLabel(for: bubl) != nil else { return nil }
-        return BublTopicInference.inferredTopic(
-            tokens: rankingTokens(for: bubl),
-            cluster: normalizedClusterLabel(for: bubl),
-            text: normalizedText("\(bubl.activityText) \(bubl.feelingText)")
-        )
-    }
-
     private func log(_ message: String) {
         print("[FeedSelection] \(message)")
         NSLog("[FeedSelection] %@", message)
         logger.info("\(message, privacy: .public)")
+    }
+}
+
+private struct FeedPayload: Decodable {
+    let myBubl: Bubl?
+    let relatedBubls: [Bubl]
+
+    enum CodingKeys: String, CodingKey {
+        case myBubl = "my_bubl"
+        case relatedBubls = "related_bubls"
     }
 }
 

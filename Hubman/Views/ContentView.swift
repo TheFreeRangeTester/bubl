@@ -615,11 +615,13 @@ private enum PreviewData {
 
 private struct FeedView: View {
     @Environment(AuthManager.self) private var authManager
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = FeedViewModel()
 
     @State private var showingPostFlow = false
     @State private var selectedForReactions: Bubl?
     @State private var selectedForReport: Bubl?
+    @State private var hasLoadedFeedOnce = false
 
     var body: some View {
         NavigationStack {
@@ -716,7 +718,16 @@ private struct FeedView: View {
                 }
             }
             .refreshable { await refreshFeed() }
-            .task { await refreshFeed() }
+            .task {
+                await refreshFeed()
+                hasLoadedFeedOnce = true
+            }
+            .onChange(of: scenePhase) {
+                guard scenePhase == .active, hasLoadedFeedOnce else { return }
+                Task {
+                    await refreshFeed()
+                }
+            }
             .sheet(isPresented: $showingPostFlow) {
                 PostFlowSheet {
                     Task {
