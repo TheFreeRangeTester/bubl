@@ -1,5 +1,6 @@
 import AuthenticationServices
 import SwiftUI
+import UIKit
 
 private func uiText(_ es: String, _ en: String) -> String {
     Locale.current.language.languageCode?.identifier == "es" ? es : en
@@ -7,6 +8,7 @@ private func uiText(_ es: String, _ en: String) -> String {
 
 struct ContentView: View {
     @Environment(AuthManager.self) private var authManager
+    @State private var isPreviewMode = false
 
     var body: some View {
         Group {
@@ -15,7 +17,15 @@ struct ContentView: View {
                 ProgressView()
                     .tint(BublPalette.ink)
             case .signedOut:
-                OnboardingView()
+                if isPreviewMode {
+                    PreviewExperienceView {
+                        isPreviewMode = false
+                    }
+                } else {
+                    OnboardingView {
+                        isPreviewMode = true
+                    }
+                }
             case .signedIn:
                 FeedView()
             }
@@ -31,6 +41,15 @@ private struct OnboardingView: View {
     @State private var errorMessage: String?
     @State private var devURL = SupabaseConfig.runtimeURL
     @State private var devAnonKey = SupabaseConfig.runtimeAnonKey
+    let onEnterPreviewMode: () -> Void
+
+    private var bundledURL: String {
+        SupabaseConfig.runtimeURL
+    }
+
+    private var bundledAnonKey: String {
+        SupabaseConfig.runtimeAnonKey
+    }
 
     var body: some View {
         ScrollView {
@@ -76,7 +95,11 @@ private struct OnboardingView: View {
                         do {
                             try await authManager.signInAnonymouslyForDevelopment()
                         } catch {
-                            errorMessage = uiText("No se pudo entrar en modo desarrollo.", "Could not enter development mode.")
+                            let details = error.localizedDescription
+                            errorMessage = uiText(
+                                "No se pudo entrar en modo desarrollo. \(details)",
+                                "Could not enter development mode. \(details)"
+                            )
                         }
                     }
                 } label: {
@@ -89,26 +112,84 @@ private struct OnboardingView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
 
+                #if targetEnvironment(simulator)
+                Button(action: onEnterPreviewMode) {
+                    Text(uiText("Explorar UI sin login", "Explore UI without login"))
+                        .font(.bublRounded(.subheadline, weight: .semibold))
+                        .foregroundStyle(BublPalette.ink)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(BublPalette.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(BublPalette.ornament.opacity(0.12), lineWidth: 1)
+                        )
+                }
+                #endif
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text(uiText("Config dev", "Dev config"))
                         .font(.bublRounded(.footnote, weight: .semibold))
                         .foregroundStyle(BublPalette.muted)
 
-                    TextField("Supabase URL", text: $devURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.bublRounded(.footnote))
-                        .padding(10)
-                        .background(BublPalette.card)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Text(configStatusText)
+                        .font(.bublRounded(.caption))
+                        .foregroundStyle(BublPalette.muted)
 
-                    TextField("Supabase ANON key", text: $devAnonKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.bublRounded(.footnote))
-                        .padding(10)
-                        .background(BublPalette.card)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(uiText("Supabase URL", "Supabase URL"))
+                                .font(.bublRounded(.footnote, weight: .semibold))
+                                .foregroundStyle(BublPalette.muted)
+
+                            Spacer()
+
+                            Button(uiText("Pegar", "Paste")) {
+                                if let pastedText = pastedFromClipboard() {
+                                    devURL = pastedText
+                                    errorMessage = nil
+                                }
+                            }
+                            .font(.bublRounded(.caption, weight: .semibold))
+                            .foregroundStyle(BublPalette.ink)
+                        }
+
+                        TextField("Supabase URL", text: $devURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.bublRounded(.footnote))
+                            .padding(10)
+                            .background(BublPalette.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(uiText("Supabase ANON key", "Supabase ANON key"))
+                                .font(.bublRounded(.footnote, weight: .semibold))
+                                .foregroundStyle(BublPalette.muted)
+
+                            Spacer()
+
+                            Button(uiText("Pegar", "Paste")) {
+                                if let pastedText = pastedFromClipboard() {
+                                    devAnonKey = pastedText
+                                    errorMessage = nil
+                                }
+                            }
+                            .font(.bublRounded(.caption, weight: .semibold))
+                            .foregroundStyle(BublPalette.ink)
+                        }
+
+                        TextField("Supabase ANON key", text: $devAnonKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.bublRounded(.footnote))
+                            .padding(10)
+                            .background(BublPalette.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
 
                     Button("Guardar config dev") {
                         SupabaseConfig.saveOverrides(
@@ -119,6 +200,25 @@ private struct OnboardingView: View {
                     }
                     .font(.bublRounded(.footnote, weight: .semibold))
                     .foregroundStyle(BublPalette.ink)
+
+                    Button(uiText("Usar config integrada", "Use bundled config")) {
+                        devURL = bundledURL
+                        devAnonKey = bundledAnonKey
+                        errorMessage = bundledAnonKey.isEmpty
+                            ? uiText("La app no trae una ANON key integrada en este build.", "This build does not include a bundled ANON key.")
+                            : uiText("Config integrada cargada.", "Bundled config loaded.")
+                    }
+                    .font(.bublRounded(.footnote, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
+
+                    Button(uiText("Reset config dev", "Reset dev config")) {
+                        SupabaseConfig.clearOverrides()
+                        devURL = SupabaseConfig.runtimeURL
+                        devAnonKey = SupabaseConfig.runtimeAnonKey
+                        errorMessage = uiText("Config dev reseteada.", "Dev config reset.")
+                    }
+                    .font(.bublRounded(.footnote, weight: .semibold))
+                    .foregroundStyle(BublPalette.muted)
                 }
 
                 if let errorMessage {
@@ -130,6 +230,26 @@ private struct OnboardingView: View {
             .padding(24)
         }
         .background(BublPalette.page.ignoresSafeArea())
+    }
+
+    private var configStatusText: String {
+        let currentURL = devURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentAnonKey = devAnonKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundledKeyAvailable = !bundledAnonKey.isEmpty
+        return uiText(
+            "URL actual: \(currentURL.isEmpty ? "vacia" : "ok") | ANON actual: \(currentAnonKey.isEmpty ? "vacia" : "ok (\(currentAnonKey.count))") | Key integrada: \(bundledKeyAvailable ? "si" : "no")",
+            "Current URL: \(currentURL.isEmpty ? "empty" : "ok") | Current ANON: \(currentAnonKey.isEmpty ? "empty" : "ok (\(currentAnonKey.count))") | Bundled key: \(bundledKeyAvailable ? "yes" : "no")"
+        )
+    }
+
+    private func pastedFromClipboard() -> String? {
+        let pastedText = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !pastedText.isEmpty else {
+            errorMessage = uiText("El portapapeles está vacío.", "Clipboard is empty.")
+            return nil
+        }
+
+        return pastedText
     }
 
     private func handleAuth(_ result: Result<ASAuthorization, Error>) {
@@ -156,6 +276,343 @@ private struct OnboardingView: View {
     }
 }
 
+private struct PreviewExperienceView: View {
+    @State private var myBubl = PreviewData.myBubl
+    @State private var related = PreviewData.relatedBubls
+    @State private var selectedForReactions: Bubl?
+    @State private var selectedForReport: Bubl?
+    @State private var showingPostFlow = false
+
+    let onExit: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(uiText("Modo preview del simulador. Nada de esto toca Supabase todavía.", "Simulator preview mode. None of this touches Supabase yet."))
+                        .font(.bublRounded(.footnote))
+                        .foregroundStyle(BublPalette.muted)
+
+                    Button {
+                        showingPostFlow = true
+                    } label: {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(uiText("Probar flow de publicación", "Try posting flow"))
+                                .font(.bublRounded(.headline, weight: .semibold))
+                                .foregroundStyle(BublPalette.ink)
+                            Text(uiText("Recorre el onboarding de post y simula publicar localmente.", "Go through the posting onboarding and simulate a local publish."))
+                                .font(.bublRounded(.subheadline))
+                                .foregroundStyle(BublPalette.muted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
+                        .background(
+                            LinearGradient(
+                                colors: [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.55)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    SectionHeader(
+                        title: uiText("Tu semana", "Your week"),
+                        subtitle: uiText("Una publicación mock para diseñar el estado con contenido propio.", "A mock post so you can design the state with your own content.")
+                    )
+                    BublCardView(bubl: myBubl, isOwnPost: true)
+
+                    SectionHeader(
+                        title: uiText("Tu burbuja", "Your bubble"),
+                        subtitle: uiText("Mock data para revisar densidad, cards y navegación.", "Mock data to review density, cards, and navigation.")
+                    )
+
+                    ForEach(related) { bubl in
+                        BublCardView(bubl: bubl, isOwnPost: false)
+                            .onTapGesture { selectedForReactions = bubl }
+                            .onLongPressGesture { selectedForReport = bubl }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("bubl")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(uiText("Salir preview", "Exit preview"), action: onExit)
+                        .font(.bublRounded(.subheadline))
+                        .tint(BublPalette.muted)
+                }
+            }
+            .sheet(isPresented: $showingPostFlow) {
+                PreviewPostFlowSheet { previewBubl in
+                    myBubl = previewBubl
+                }
+            }
+            .sheet(item: $selectedForReactions) { bubl in
+                PreviewReactionSheetView(bubl: bubl)
+            }
+            .sheet(item: $selectedForReport) { bubl in
+                PreviewReportView(reportedBublID: bubl.id)
+            }
+            .background(BublPalette.page)
+        }
+    }
+}
+
+private struct PreviewPostFlowSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var postViewModel = PostViewModel()
+    @State private var step = 1
+    @State private var showMatchingState = false
+
+    let onPosted: (Bubl) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                VStack {
+                    if step == 1 {
+                        Step1View(viewModel: postViewModel) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                step = 2
+                            }
+                        }
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    } else {
+                        Step2View(
+                            viewModel: postViewModel,
+                            isSubmitting: postViewModel.isSubmitting,
+                            onBack: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    step = 1
+                                }
+                            },
+                            onShare: submit
+                        )
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                }
+
+                if showMatchingState {
+                    MatchingBubbleView(message: postViewModel.matchingPrompt)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: step)
+            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: showMatchingState)
+            .background(BublPalette.page.ignoresSafeArea())
+        }
+    }
+
+    private func submit() {
+        postViewModel.trimLimits()
+
+        if BublGuardrails.containsCrisisLanguage(postViewModel.step2Text) {
+            postViewModel.showCrisisPrompt = true
+        }
+
+        guard postViewModel.canShare else {
+            postViewModel.submitError = uiText("Completá las dos partes antes de publicar.", "Complete both parts before publishing.")
+            return
+        }
+
+        let activity = postViewModel.composedActivityText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let feeling = postViewModel.step2Text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let validationError = BublGuardrails.validationError(activity: activity, feeling: feeling) {
+            postViewModel.submitError = validationError
+            return
+        }
+
+        Task {
+            postViewModel.isSubmitting = true
+            withAnimation { showMatchingState = true }
+            try? await Task.sleep(for: .milliseconds(900))
+
+            let previewBubl = PreviewData.makeMyBubl(activityText: activity, feelingText: feeling)
+            onPosted(previewBubl)
+
+            postViewModel.isSubmitting = false
+            dismiss()
+        }
+    }
+}
+
+private struct PreviewReactionSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let bubl: Bubl
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                BublCardView(bubl: bubl, isOwnPost: false)
+
+                Text(uiText("Interacciones cortas", "Short reactions"))
+                    .font(.bublRounded(.headline, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
+
+                ForEach(ReactionKind.allCases) { kind in
+                    HStack {
+                        Text(kind.label)
+                            .font(.bublRounded(.body, weight: .semibold))
+                        Spacer()
+                        Text("\(PreviewData.reactionCount(for: kind))")
+                            .font(.bublRounded(.body))
+                            .foregroundStyle(BublPalette.muted)
+                    }
+                    .padding(14)
+                    .background(BublPalette.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                Text(uiText("Preview local: acá después conectamos la reacción real.", "Local preview: we'll wire the real reaction flow here later."))
+                    .font(.bublRounded(.footnote))
+                    .foregroundStyle(BublPalette.muted)
+
+                Spacer()
+            }
+            .padding(16)
+            .navigationTitle(uiText("Acompañar", "Support"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(String(localized: "common.done")) { dismiss() }
+                }
+            }
+            .background(BublPalette.page)
+        }
+    }
+}
+
+private struct PreviewReportView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let reportedBublID: UUID
+
+    @State private var selectedReason = "Datos personales"
+    @State private var showConfirmation = false
+
+    private let reasons = [
+        "Datos personales",
+        "Acoso o odio",
+        "Contenido sexual",
+        "Autolesion o crisis",
+        "Spam"
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(uiText("Reportar publicación", "Report post"))
+                    .font(.bublRounded(.title3, weight: .semibold))
+
+                Picker("Motivo", selection: $selectedReason) {
+                    ForEach(reasons, id: \.self) { reason in
+                        Text(reason).tag(reason)
+                    }
+                }
+                .pickerStyle(.inline)
+
+                Button(uiText("Enviar preview", "Send preview")) {
+                    showConfirmation = true
+                }
+                .buttonStyle(BublPrimaryButtonStyle())
+
+                Text(uiText("Preview local del flujo de reporte. No envía nada todavía.", "Local preview of the report flow. It does not send anything yet."))
+                    .font(.bublRounded(.footnote))
+                    .foregroundStyle(BublPalette.muted)
+
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle(String(localized: "report.nav"))
+            .navigationBarTitleDisplayMode(.inline)
+            .alert("Gracias", isPresented: $showConfirmation) {
+                Button("OK") { dismiss() }
+            } message: {
+                Text(String(localized: "report.done.body"))
+            }
+            .background(BublPalette.page)
+        }
+    }
+}
+
+private enum PreviewData {
+    static var myBubl: Bubl {
+        makeMyBubl(
+            activityText: uiText("trabajando en una app nueva con demasiadas ideas al mismo tiempo", "working on a new app with too many ideas at once"),
+            feelingText: uiText("me entusiasma mucho, pero también me cuesta cerrar y no perderme en detalles.", "I am really excited, but it is also hard to finish and not get lost in details.")
+        )
+    }
+
+    static var relatedBubls: [Bubl] {
+        [
+            makeRelatedBubl(
+                activityText: uiText("armando un side project de noche", "building a side project at night"),
+                feelingText: uiText("me está costando bajar la ansiedad de querer que salga perfecto.", "I am struggling to calm the anxiety of wanting it to be perfect.")
+            ),
+            makeRelatedBubl(
+                activityText: uiText("reordenando mi semana para enfocarme mejor", "reworking my week to focus better"),
+                feelingText: uiText("me sirve poner límites, pero todavía siento culpa cuando corto.", "Setting boundaries helps, but I still feel guilty when I stop.")
+            ),
+            makeRelatedBubl(
+                activityText: uiText("volviendo a diseñar algo desde cero", "starting to design something from scratch again"),
+                feelingText: uiText("me gusta sentir que vuelve la energía creativa, aunque voy lento.", "It feels good to have creative energy back, even if I am going slowly.")
+            )
+        ]
+    }
+
+    static func reactionCount(for kind: ReactionKind) -> Int {
+        switch kind {
+        case .sameHere: return 8
+        case .iGetIt: return 5
+        case .beenThere: return 3
+        case .rootingForYou: return 11
+        }
+    }
+
+    static func makeMyBubl(activityText: String, feelingText: String) -> Bubl {
+        Bubl(
+            id: UUID(),
+            userID: UUID(),
+            activityText: activityText,
+            feelingText: feelingText,
+            categoryID: BublCategory.work.rawValue,
+            subcategoryID: "work_side_projects",
+            topicID: "building_projects",
+            languageCode: Locale.current.language.languageCode?.identifier ?? "en",
+            clusterLabel: "work_side_projects",
+            weekID: WeekID.current(),
+            createdAt: .now,
+            expiresAt: Calendar.current.date(byAdding: .day, value: 7, to: .now) ?? .now,
+            isActive: true,
+            isFlagged: false
+        )
+    }
+
+    static func makeRelatedBubl(activityText: String, feelingText: String) -> Bubl {
+        Bubl(
+            id: UUID(),
+            userID: UUID(),
+            activityText: activityText,
+            feelingText: feelingText,
+            categoryID: BublCategory.work.rawValue,
+            subcategoryID: "work_side_projects",
+            topicID: "building_projects",
+            languageCode: Locale.current.language.languageCode?.identifier ?? "en",
+            clusterLabel: "work_side_projects",
+            weekID: WeekID.current(),
+            createdAt: .now,
+            expiresAt: Calendar.current.date(byAdding: .day, value: 7, to: .now) ?? .now,
+            isActive: true,
+            isFlagged: false
+        )
+    }
+}
+
 private struct FeedView: View {
     @Environment(AuthManager.self) private var authManager
     @State private var viewModel = FeedViewModel()
@@ -176,7 +633,7 @@ private struct FeedView: View {
                                 Text(uiText("Tu burbuja de esta semana", "Your bubble this week"))
                                     .font(.bublRounded(.headline, weight: .semibold))
                                     .foregroundStyle(BublPalette.ink)
-                                Text(uiText("Publicá en dos pasos para ver reflexiones de personas que están en algo parecido.", "Post in two steps to see reflections from people in something similar."))
+                                Text(uiText("Arrancá con una burbuja guiada y encontrá gente que esté en algo parecido.", "Start with a guided bubble and find people in something similar."))
                                     .font(.bublRounded(.subheadline))
                                     .foregroundStyle(BublPalette.muted)
                             }
@@ -288,7 +745,7 @@ private struct PostFlowSheet: View {
     @Environment(AuthManager.self) private var authManager
     @State private var postViewModel = PostViewModel()
     @State private var step = 1
-    @State private var showPersonalizingState = false
+    @State private var showMatchingState = false
 
     let onPosted: () -> Void
 
@@ -302,28 +759,29 @@ private struct PostFlowSheet: View {
                                 step = 2
                             }
                         }
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     } else if step == 2 {
                         Step2View(
                             viewModel: postViewModel,
-                            onBack: { step = 1 },
-                            onContinue: { step = 3 }
-                        )
-                    } else {
-                        Step3View(
-                            viewModel: postViewModel,
                             isSubmitting: postViewModel.isSubmitting,
-                            onBack: { step = 2 },
+                            onBack: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    step = 1
+                                }
+                            },
                             onShare: submit
                         )
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                 }
 
-                if showPersonalizingState {
-                    PersonalizingBubbleView()
+                if showMatchingState {
+                    MatchingBubbleView(message: postViewModel.matchingPrompt)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
-            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: showPersonalizingState)
+            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: step)
+            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: showMatchingState)
             .background(BublPalette.page.ignoresSafeArea())
             .alert(uiText("Si esto se siente demasiado pesado, buscá ayuda real.", "If this feels too heavy, please seek real-world help."), isPresented: $postViewModel.showCrisisPrompt) {
                 Link(uiText("Ver recursos", "See resources"), destination: URL(string: "https://findahelpline.com")!)
@@ -346,24 +804,22 @@ private struct PostFlowSheet: View {
         guard let userID = authManager.session?.user.id else { return }
 
         Task {
-            withAnimation {
-                showPersonalizingState = true
-            }
+            withAnimation { showMatchingState = true }
             let posted = await postViewModel.share(currentUserID: userID)
             if posted {
+                try? await Task.sleep(for: .milliseconds(1350))
                 onPosted()
                 dismiss()
             } else {
-                withAnimation {
-                    showPersonalizingState = false
-                }
+                withAnimation { showMatchingState = false }
             }
         }
     }
 }
 
-private struct PersonalizingBubbleView: View {
+private struct MatchingBubbleView: View {
     @State private var animate = false
+    let message: String
 
     var body: some View {
         VStack(spacing: 22) {
@@ -371,41 +827,47 @@ private struct PersonalizingBubbleView: View {
 
             ZStack {
                 Circle()
-                    .fill(BublPalette.accentSoft)
-                    .frame(width: 126, height: 126)
-                    .scaleEffect(animate ? 1.06 : 0.94)
+                    .fill(
+                        LinearGradient(
+                            colors: [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.65)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 144, height: 144)
+                    .scaleEffect(animate ? 1.08 : 0.92)
 
                 Circle()
                     .fill(BublPalette.card)
-                    .frame(width: 88, height: 88)
+                    .frame(width: 96, height: 96)
                     .overlay(
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 28, weight: .semibold))
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 30, weight: .semibold))
                             .foregroundStyle(BublPalette.ink)
                     )
                     .offset(y: animate ? -3 : 3)
 
                 Circle()
                     .fill(BublPalette.accentSoft.opacity(0.8))
-                    .frame(width: 24, height: 24)
-                    .offset(x: -62, y: -34)
-                    .offset(y: animate ? -10 : 2)
+                    .frame(width: 28, height: 28)
+                    .offset(x: -72, y: -38)
+                    .offset(y: animate ? -12 : 4)
 
                 Circle()
                     .fill(BublPalette.ink.opacity(0.12))
-                    .frame(width: 18, height: 18)
-                    .offset(x: 56, y: 26)
-                    .offset(y: animate ? 6 : -4)
+                    .frame(width: 20, height: 20)
+                    .offset(x: 64, y: 28)
+                    .offset(y: animate ? 8 : -4)
             }
             .padding(.bottom, 8)
 
             VStack(spacing: 10) {
-                Text(uiText("Armando tu burbuja", "Building your bubble"))
+                Text(uiText("Veamos qué opinan", "Let's see what they think"))
                     .font(.bublRounded(.title3, weight: .semibold))
                     .foregroundStyle(BublPalette.ink)
                     .multilineTextAlignment(.center)
 
-                Text(uiText("Estamos buscando personas en algo realmente parecido para que tu feed arranque con mejores señales.", "We're looking for people in something truly similar so your feed starts with better signals."))
+                Text(message)
                     .font(.bublRounded(.body))
                     .foregroundStyle(BublPalette.muted)
                     .multilineTextAlignment(.center)
@@ -431,112 +893,110 @@ private struct PersonalizingBubbleView: View {
 private struct Step1View: View {
     @Bindable var viewModel: PostViewModel
     let onContinue: () -> Void
+    @State private var showsPresetPicker = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(uiText("1. Qué estás viviendo esta semana?", "1. What are you living through this week?"))
-                .font(.bublRounded(.title2, weight: .semibold))
-                .foregroundStyle(BublPalette.ink)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text(uiText("Contanos qué estás haciendo", "Tell us what you're into"))
+                    .font(.bublRounded(.title2, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
 
-            Text(uiText("Ejemplo: Estoy retomando piano después de tres años sin tocar.", "Example: I'm getting back to piano after three years without playing."))
-                .font(.bublRounded(.subheadline))
-                .foregroundStyle(BublPalette.muted)
+                Text(uiText("La idea es arrancar con una burbuja simple y agradable, como si la app te estuviera preguntando suave.", "The idea is to start with a soft, simple bubble, like the app is gently asking you."))
+                    .font(.bublRounded(.subheadline))
+                    .foregroundStyle(BublPalette.muted)
 
-            TextEditor(text: $viewModel.step1Text)
-                .font(.bublRounded(.body))
-                .frame(minHeight: 180)
-                .padding(10)
-                .background(BublPalette.card)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(alignment: .topLeading) {
-                    if viewModel.step1Text.isEmpty {
-                        Text(uiText("¿Qué estás haciendo, atravesando o intentando esta semana?", "What are you doing, going through, or trying this week?"))
-                            .font(.bublRounded(.body))
-                            .foregroundStyle(BublPalette.muted)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 18)
+                BubblePrompt(
+                    title: "I'm...",
+                    subtitle: uiText("Tocá para elegir el tipo de situación", "Tap to choose the kind of moment")
+                )
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        showsPresetPicker.toggle()
                     }
                 }
-                .onChange(of: viewModel.step1Text) {
-                    viewModel.trimLimits()
+
+                if showsPresetPicker {
+                    BubbleOptionCloud(
+                        presets: PostViewModel.ActivityPreset.allCases,
+                        selectedPreset: viewModel.selectedPreset
+                    ) { preset in
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                            viewModel.applyPreset(preset)
+                            showsPresetPicker = false
+                        }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-            Text("\(viewModel.step1Text.count)/140")
-                .font(.bublRounded(.caption))
-                .foregroundStyle(BublPalette.muted)
+                if let selectedPreset = viewModel.selectedPreset {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Text(uiText("Ahora completá qué es eso.", "Now fill in what that is."))
+                                .font(.bublRounded(.headline, weight: .semibold))
+                                .foregroundStyle(BublPalette.ink)
 
-            Button(String(localized: "common.continue"), action: onContinue)
-                .buttonStyle(BublPrimaryButtonStyle())
-                .disabled(!viewModel.canContinueStep1)
+                            Spacer()
+
+                            Button(uiText("Cambiar", "Change")) {
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                    showsPresetPicker = true
+                                }
+                            }
+                            .font(.bublRounded(.footnote, weight: .semibold))
+                            .foregroundStyle(BublPalette.muted)
+                        }
+
+                        HStack(spacing: 8) {
+                            Text(selectedPreset.label)
+                                .font(.bublRounded(.subheadline, weight: .semibold))
+                                .foregroundStyle(BublPalette.ink)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(BublPalette.accentSoft)
+                                .clipShape(Capsule())
+
+                            TextEditor(text: $viewModel.step1Text)
+                                .font(.bublRounded(.body))
+                                .frame(minHeight: 120)
+                                .padding(10)
+                                .background(BublPalette.card)
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .overlay(alignment: .topLeading) {
+                                    if viewModel.step1Text.isEmpty {
+                                        Text(uiText("pokemon Pokopia, un libro raro, una serie nueva, un side project...", "pokemon Pokopia, a weird book, a new show, a side project..."))
+                                            .font(.bublRounded(.body))
+                                            .foregroundStyle(BublPalette.muted)
+                                            .padding(.horizontal, 16)
+                                            .padding(.top, 18)
+                                    }
+                                }
+                                .onChange(of: viewModel.step1Text) {
+                                    viewModel.trimLimits()
+                                }
+                        }
+
+                        Text(uiText("Así se va a leer: ", "This will read as: ") + viewModel.composedActivityText)
+                            .font(.bublRounded(.footnote))
+                            .foregroundStyle(BublPalette.muted)
+
+                        Text("\(viewModel.step1Text.count)/100")
+                            .font(.bublRounded(.caption))
+                            .foregroundStyle(BublPalette.muted)
+                    }
+                }
+
+                Button(uiText("Seguir", "Continue"), action: onContinue)
+                    .buttonStyle(BublPrimaryButtonStyle())
+                    .disabled(!viewModel.canContinueStep1)
+                    .padding(.top, 4)
+            }
+            .padding(20)
         }
-        .padding(20)
     }
 }
 
 private struct Step2View: View {
-    @Bindable var viewModel: PostViewModel
-    let onBack: () -> Void
-    let onContinue: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Button(action: onBack) {
-                    Label("Atras", systemImage: "chevron.left")
-                        .font(.bublRounded(.subheadline, weight: .semibold))
-                }
-                .tint(BublPalette.muted)
-                Spacer()
-            }
-
-            Text(viewModel.step1Text)
-                .font(.bublRounded(.footnote))
-                .foregroundStyle(BublPalette.muted)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(BublPalette.accentSoft)
-                .clipShape(Capsule())
-
-            Text(uiText("2. ¿Cómo venís con eso?", "2. How are you feeling about it?"))
-                .font(.bublRounded(.title2, weight: .semibold))
-                .foregroundStyle(BublPalette.ink)
-
-            Text(uiText("Ejemplo: Estoy motivado, pero también frustrado porque olvidé mucho.", "Example: I feel motivated, but also frustrated because I forgot a lot."))
-                .font(.bublRounded(.subheadline))
-                .foregroundStyle(BublPalette.muted)
-
-            TextEditor(text: $viewModel.step2Text)
-                .font(.bublRounded(.body))
-                .frame(minHeight: 200)
-                .padding(10)
-                .background(BublPalette.card)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(alignment: .topLeading) {
-                    if viewModel.step2Text.isEmpty {
-                        Text(uiText("¿Qué te genera emocionalmente esta situación?", "How is this situation affecting you emotionally?"))
-                            .font(.bublRounded(.body))
-                            .foregroundStyle(BublPalette.muted)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 18)
-                    }
-                }
-                .onChange(of: viewModel.step2Text) {
-                    viewModel.trimLimits()
-                }
-
-            Text("\(viewModel.step2Text.count)/220")
-                .font(.bublRounded(.caption))
-                .foregroundStyle(BublPalette.muted)
-
-            Button(uiText("Elegir categoría", "Choose category"), action: onContinue)
-                .buttonStyle(BublPrimaryButtonStyle())
-                .disabled(!viewModel.canContinueStep2)
-        }
-        .padding(20)
-    }
-}
-
-private struct Step3View: View {
     @Bindable var viewModel: PostViewModel
     let isSubmitting: Bool
     let onBack: () -> Void
@@ -544,137 +1004,58 @@ private struct Step3View: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     Button(action: onBack) {
                         Label("Atras", systemImage: "chevron.left")
                             .font(.bublRounded(.subheadline, weight: .semibold))
                     }
                     .tint(BublPalette.muted)
+
                     Spacer()
                 }
 
-                Text(uiText("3. Elegí una categoría", "3. Choose a category"))
-                    .font(.bublRounded(.title2, weight: .semibold))
-                    .foregroundStyle(BublPalette.ink)
-
-                LazyVStack(spacing: 10) {
-                    ForEach(BublCategory.allCases) { category in
-                        Button {
-                            viewModel.selectedCategory = category
-                            viewModel.selectedSubcategory = BublSubcategory.defaultOption(for: category)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(category.title)
-                                        .font(.bublRounded(.body, weight: .semibold))
-                                    Text(category.subtitle)
-                                        .font(.bublRounded(.footnote))
-                                        .foregroundStyle(BublPalette.muted)
-                                }
-                                Spacer()
-                                if viewModel.selectedCategory == category {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(BublPalette.ink)
-                                }
-                            }
-                            .padding(14)
-                            .background(
-                                viewModel.selectedCategory == category
-                                ? LinearGradient(
-                                    colors: [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.45)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                                : LinearGradient(
-                                    colors: [BublPalette.card, BublPalette.card],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(
-                                        viewModel.selectedCategory == category
-                                        ? BublPalette.ornament.opacity(0.22)
-                                        : BublPalette.accent.opacity(0.08),
-                                        lineWidth: 1
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(uiText("Afiná un poco más", "Narrow it down a bit"))
-                        .font(.bublRounded(.headline, weight: .semibold))
-                        .foregroundStyle(BublPalette.ink)
-
-                    Text(uiText("Así priorizamos gente en algo más parecido dentro de \(viewModel.selectedCategory.title.lowercased()).", "This helps us prioritize people in something more similar within \(viewModel.selectedCategory.title.lowercased())."))
-                        .font(.bublRounded(.footnote))
-                        .foregroundStyle(BublPalette.muted)
-
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
-                        ForEach(BublSubcategory.options(for: viewModel.selectedCategory)) { subcategory in
-                            Button {
-                                viewModel.selectedSubcategory = subcategory
-                            } label: {
-                                Text(subcategory.title)
-                                    .font(.bublRounded(.footnote, weight: .semibold))
-                                    .foregroundStyle(BublPalette.ink)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .padding(.horizontal, 10)
-                                    .background(
-                                        LinearGradient(
-                                            colors: viewModel.selectedSubcategory == subcategory
-                                            ? [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.42)]
-                                            : [BublPalette.card, BublPalette.card],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .stroke(
-                                                viewModel.selectedSubcategory == subcategory
-                                                ? BublPalette.ornament.opacity(0.22)
-                                                : BublPalette.accent.opacity(0.08),
-                                                lineWidth: 1
-                                            )
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                Text(uiText("Preview", "Preview"))
-                    .font(.bublRounded(.headline, weight: .semibold))
-                    .foregroundStyle(BublPalette.ink)
-
-                BublCardView(
-                    bubl: Bubl(
-                        id: UUID(),
-                        userID: UUID(),
-                        activityText: viewModel.step1Text.trimmingCharacters(in: .whitespacesAndNewlines),
-                        feelingText: viewModel.step2Text.trimmingCharacters(in: .whitespacesAndNewlines),
-                        categoryID: viewModel.selectedCategory.rawValue,
-                        subcategoryID: viewModel.selectedSubcategory.rawValue,
-                        topicID: nil,
-                        languageCode: Locale.current.language.languageCode?.identifier ?? "en",
-                        clusterLabel: viewModel.selectedSubcategory.clusterLabel,
-                        weekID: WeekID.current(),
-                        createdAt: .now,
-                        expiresAt: Calendar.current.date(byAdding: .day, value: 7, to: .now) ?? .now,
-                        isActive: true,
-                        isFlagged: false
-                    ),
-                    isOwnPost: false
+                BubblePrompt(
+                    title: viewModel.opinionPrompt,
+                    subtitle: uiText("Decilo en pocas palabras, como te salga.", "Say it in a few words, however it comes out.")
                 )
+
+                Text(viewModel.composedActivityText)
+                    .font(.bublRounded(.footnote, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        LinearGradient(
+                            colors: [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.45)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(Capsule())
+
+                TextEditor(text: $viewModel.step2Text)
+                    .font(.bublRounded(.body))
+                    .frame(minHeight: 220)
+                    .padding(10)
+                    .background(BublPalette.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay(alignment: .topLeading) {
+                        if viewModel.step2Text.isEmpty {
+                            Text(uiText("me está dando nostalgia, me re enganché, me está frustrando más de lo que pensé...", "it's making me nostalgic, I'm really into it, it's frustrating me more than I expected..."))
+                                .font(.bublRounded(.body))
+                                .foregroundStyle(BublPalette.muted)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 18)
+                        }
+                    }
+                    .onChange(of: viewModel.step2Text) {
+                        viewModel.trimLimits()
+                    }
+
+                Text("\(viewModel.step2Text.count)/220")
+                    .font(.bublRounded(.caption))
+                    .foregroundStyle(BublPalette.muted)
 
                 Button(action: onShare) {
                     if isSubmitting {
@@ -682,13 +1063,85 @@ private struct Step3View: View {
                             .tint(BublPalette.ink)
                             .frame(maxWidth: .infinity)
                     } else {
-                        Text(uiText("Publicar", "Post"))
+                        Text(uiText("Buscar bubls parecidos", "Find related bubls"))
                     }
                 }
                 .buttonStyle(BublPrimaryButtonStyle())
                 .disabled(!viewModel.canShare || isSubmitting)
             }
             .padding(20)
+        }
+    }
+}
+
+private struct BubblePrompt: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.bublRounded(.title3, weight: .semibold))
+                .foregroundStyle(BublPalette.ink)
+
+            Text(subtitle)
+                .font(.bublRounded(.subheadline))
+                .foregroundStyle(BublPalette.muted)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [BublPalette.card, BublPalette.accentSoft.opacity(0.82)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(alignment: .bottomLeading) {
+            Circle()
+                .fill(BublPalette.card)
+                .frame(width: 26, height: 26)
+                .offset(x: 18, y: 12)
+        }
+    }
+}
+
+private struct BubbleOptionCloud: View {
+    let presets: [PostViewModel.ActivityPreset]
+    let selectedPreset: PostViewModel.ActivityPreset?
+    let onSelect: (PostViewModel.ActivityPreset) -> Void
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 10)], spacing: 10) {
+            ForEach(presets) { preset in
+                Button {
+                    onSelect(preset)
+                } label: {
+                    Text(preset.label)
+                        .font(.bublRounded(.body, weight: .semibold))
+                        .foregroundStyle(BublPalette.ink)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
+                        .background(
+                            LinearGradient(
+                                colors: selectedPreset == preset
+                                    ? [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.45)]
+                                    : [BublPalette.card, BublPalette.card],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(BublPalette.ornament.opacity(selectedPreset == preset ? 0.22 : 0.08), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }

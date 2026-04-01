@@ -5,7 +5,7 @@ import OSLog
 import Supabase
 
 enum SupabaseConfig {
-    private static let fallbackURL = "https://gmomqwmrasnhhpvizkpn.supabase.co"
+    private static let fallbackURL = "https://example.supabase.co"
     private static let urlOverrideKey = "dev.supabase.url"
     private static let anonOverrideKey = "dev.supabase.anon"
 
@@ -14,21 +14,28 @@ enum SupabaseConfig {
         UserDefaults.standard.set(anonKey, forKey: anonOverrideKey)
     }
 
+    static func clearOverrides() {
+        UserDefaults.standard.removeObject(forKey: urlOverrideKey)
+        UserDefaults.standard.removeObject(forKey: anonOverrideKey)
+    }
+
     static var runtimeURL: String {
         let override = UserDefaults.standard.string(forKey: urlOverrideKey) ?? ""
         if !override.isEmpty { return override }
-        return (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String) ?? ""
+        let bundled = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String) ?? ""
+        return bundled
     }
 
     static var runtimeAnonKey: String {
         let override = UserDefaults.standard.string(forKey: anonOverrideKey) ?? ""
         if !override.isEmpty { return override }
-        return (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String) ?? ""
+        let bundled = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String) ?? ""
+        return bundled
     }
 
     static var client: SupabaseClient {
-        let urlString = runtimeURL.isEmpty ? fallbackURL : runtimeURL
-        let anonKey = runtimeAnonKey.isEmpty ? "missing-anon-key" : runtimeAnonKey
+        let urlString = runtimeURL
+        let anonKey = runtimeAnonKey
         let url = URL(string: urlString) ?? URL(string: fallbackURL)!
         return SupabaseClient(supabaseURL: url, supabaseKey: anonKey)
     }
@@ -470,6 +477,63 @@ final class AuthManager {
 
 @Observable
 final class PostViewModel {
+    enum ActivityPreset: String, CaseIterable, Identifiable {
+        case listening
+        case reading
+        case playing
+        case watching
+        case workingOn
+        case training
+        case cooking
+        case living
+
+        var id: String { rawValue }
+
+        private var isSpanish: Bool {
+            Locale.current.language.languageCode?.identifier == "es"
+        }
+
+        var label: String {
+            switch self {
+            case .listening: return isSpanish ? "escuchando" : "listening to"
+            case .reading: return isSpanish ? "leyendo" : "reading"
+            case .playing: return isSpanish ? "jugando" : "playing"
+            case .watching: return isSpanish ? "mirando" : "watching"
+            case .workingOn: return isSpanish ? "trabajando en" : "working on"
+            case .training: return isSpanish ? "entrenando" : "training"
+            case .cooking: return isSpanish ? "cocinando" : "cooking"
+            case .living: return isSpanish ? "atravesando" : "going through"
+            }
+        }
+
+        var promptLabel: String {
+            switch self {
+            case .listening: return isSpanish ? "escuchar" : "listening to"
+            case .reading: return isSpanish ? "leer" : "reading"
+            case .playing: return isSpanish ? "jugar" : "playing"
+            case .watching: return isSpanish ? "ver" : "watching"
+            case .workingOn: return isSpanish ? "estar con" : "working on"
+            case .training: return isSpanish ? "entrenar" : "training"
+            case .cooking: return isSpanish ? "cocinar" : "cooking"
+            case .living: return isSpanish ? "estar en" : "going through"
+            }
+        }
+
+        var suggestedSubcategory: BublSubcategory {
+            switch self {
+            case .listening: return .hobbiesMusic
+            case .reading: return .hobbiesReading
+            case .playing: return .hobbiesGaming
+            case .watching: return .hobbiesOther
+            case .workingOn: return .workSideProjects
+            case .training: return .healthExercise
+            case .cooking: return .hobbiesFood
+            case .living: return .lifeDecisions
+            }
+        }
+    }
+
+    var selectedPreset: ActivityPreset?
     var step1Text: String = ""
     var step2Text: String = ""
     var selectedCategory: BublCategory = .life
@@ -486,11 +550,11 @@ final class PostViewModel {
     )
 
     var canContinueStep1: Bool {
-        step1Text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10
+        selectedPreset != nil && step1Text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3
     }
 
     var canContinueStep2: Bool {
-        step2Text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 12
+        step2Text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3
     }
 
     var canShare: Bool {
@@ -498,18 +562,61 @@ final class PostViewModel {
     }
 
     func trimLimits() {
-        if step1Text.count > 140 {
-            step1Text = String(step1Text.prefix(140))
+        if step1Text.count > 100 {
+            step1Text = String(step1Text.prefix(100))
         }
         if step2Text.count > 220 {
             step2Text = String(step2Text.prefix(220))
         }
     }
 
+    var composedActivityText: String {
+        let detail = step1Text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let selectedPreset else { return detail }
+        guard !detail.isEmpty else { return selectedPreset.label }
+        return "\(selectedPreset.label) \(detail)"
+    }
+
+    var opinionPrompt: String {
+        let detail = composedActivityText
+        let isSpanish = Locale.current.language.languageCode?.identifier == "es"
+
+        guard !detail.isEmpty else {
+            return isSpanish
+                ? "¿Y? ¿Qué opinás sobre eso?"
+                : "And? How do you feel about that?"
+        }
+
+        return isSpanish
+            ? "¿Y? ¿Qué opinás sobre estar \(detail)?"
+            : "And? How do you feel about \(detail)?"
+    }
+
+    var matchingPrompt: String {
+        let detail = composedActivityText
+        let isSpanish = Locale.current.language.languageCode?.identifier == "es"
+
+        guard !detail.isEmpty else {
+            return isSpanish
+                ? "Quizás haya otras personas en algo parecido. Veamos qué opinan."
+                : "There may be other people in something similar. Let's see what they think."
+        }
+
+        return isSpanish
+            ? "Quizás haya otros \(detail). Veamos qué opinan."
+            : "There may be others \(detail). Let's see what they think."
+    }
+
+    func applyPreset(_ preset: ActivityPreset) {
+        selectedPreset = preset
+        selectedCategory = preset.suggestedSubcategory.category
+        selectedSubcategory = preset.suggestedSubcategory
+    }
+
     func share(currentUserID: UUID) async -> Bool {
         trimLimits()
 
-        let activity = step1Text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activity = composedActivityText.trimmingCharacters(in: .whitespacesAndNewlines)
         let feeling = step2Text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if BublGuardrails.containsCrisisLanguage(feeling) {

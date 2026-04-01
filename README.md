@@ -33,7 +33,7 @@ The current Xcode target is still bound to the legacy 4 source slots, so the sam
 
 1. Add Supabase Swift SDK package in Xcode:
    - URL: `https://github.com/supabase/supabase-swift`
-2. Add build settings (or Info.plist keys):
+2. Create `Hubman/Config/Local.xcconfig` from `Hubman/Config/Local.example.xcconfig` and fill in:
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY`
 3. In Supabase project:
