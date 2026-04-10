@@ -39,6 +39,13 @@ enum SupabaseConfig {
         let url = URL(string: urlString) ?? URL(string: fallbackURL)!
         return SupabaseClient(supabaseURL: url, supabaseKey: anonKey)
     }
+
+    static var diagnostics: String {
+        let trimmedURL = runtimeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedKey = runtimeAnonKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = URL(string: trimmedURL)?.host ?? "invalid"
+        return "host=\(host) anon_len=\(trimmedKey.count)"
+    }
 }
 
 enum WeekID {
@@ -112,6 +119,11 @@ enum BublTopicInference {
 
         switch cluster {
         case "music":
+            if containsAny(in: normalized, phrases: [
+                "guitarra", "guitar", "piano", "violin", "violín", "bateria", "batería",
+                "bajo", "acordes", "riff", "ensayando", "ensayo", "practicando",
+                "practicar", "practice", "practicing", "volver a tocar"
+            ]) { return "learning_instrument" }
             if containsAny(in: normalized, phrases: ["concert", "show", "gig", "festival", "tour", "recital"]) { return "live_shows" }
             if containsAny(in: normalized, phrases: ["playlist", "playlists", "album", "albums", "discography"]) { return "playlists" }
             if containsAny(in: normalized, phrases: ["band", "artist", "latest", "song", "songs"]) { return "artist_fandom" }
@@ -140,7 +152,11 @@ enum BublTopicInference {
             if containsAny(in: normalized, phrases: ["escrib", "texto", "draft", "borrador"]) { return "writing_process" }
             if containsAny(in: normalized, phrases: ["design", "portfolio", "visual", "feedback"]) { return "design_direction" }
             if containsAny(in: normalized, phrases: ["draw", "dibujo", "ilustracion", "ilustración", "sketch"]) { return "drawing_practice" }
-            if containsAny(in: normalized, phrases: ["guitarra", "guitar", "demo", "song", "cancion", "canción"]) { return "music_creation" }
+            if containsAny(in: normalized, phrases: [
+                "guitarra", "guitar", "piano", "violin", "violín", "bateria", "batería",
+                "demo", "song", "cancion", "canción", "componer", "componiendo",
+                "ensayando", "ensayo", "acordes", "riff", "practicando", "practice"
+            ]) { return "music_creation" }
         case let value? where value.hasPrefix("life_"):
             if containsAny(in: normalized, phrases: ["mudo", "mudanza", "empacar", "casa"]) { return "moving_transition" }
             if containsAny(in: normalized, phrases: ["ordenar", "rutina", "cleanup", "organizar"]) { return "organization_reset" }
@@ -377,6 +393,29 @@ extension BublCategory {
 
 @Observable
 final class AuthManager {
+    enum DevAuthError: LocalizedError {
+        case missingURL
+        case invalidURL(String)
+        case missingAnonKey
+        case signInFailed(String)
+        case bootstrapFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingURL:
+                return "Supabase URL is empty."
+            case .invalidURL(let value):
+                return "Supabase URL is invalid: \(value)"
+            case .missingAnonKey:
+                return "Supabase ANON key is empty."
+            case .signInFailed(let details):
+                return "Anonymous auth failed. \(details)"
+            case .bootstrapFailed(let details):
+                return "Anonymous auth succeeded, but bootstrap failed. \(details)"
+            }
+        }
+    }
+
     enum State {
         case loading
         case signedOut
@@ -443,10 +482,34 @@ final class AuthManager {
     }
 
     func signInAnonymouslyForDevelopment() async throws {
-        let newSession = try await client.auth.signInAnonymously()
-        session = newSession
-        state = .signedIn
-        try await bootstrapUserIfNeeded(userID: newSession.user.id)
+        let urlString = SupabaseConfig.runtimeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let anonKey = SupabaseConfig.runtimeAnonKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !urlString.isEmpty else {
+            throw DevAuthError.missingURL
+        }
+        guard URL(string: urlString)?.scheme != nil else {
+            throw DevAuthError.invalidURL(urlString)
+        }
+        guard !anonKey.isEmpty else {
+            throw DevAuthError.missingAnonKey
+        }
+
+        do {
+            let newSession = try await client.auth.signInAnonymously()
+            session = newSession
+            state = .signedIn
+
+            do {
+                try await bootstrapUserIfNeeded(userID: newSession.user.id)
+            } catch {
+                throw DevAuthError.bootstrapFailed(error.localizedDescription)
+            }
+        } catch let error as DevAuthError {
+            throw error
+        } catch {
+            throw DevAuthError.signInFailed(error.localizedDescription)
+        }
     }
 
     func bootstrapUserIfNeeded(userID: UUID) async throws {
@@ -477,15 +540,24 @@ final class AuthManager {
 
 @Observable
 final class PostViewModel {
+    private struct ClassificationResolution {
+        let category: BublCategory
+        let subcategory: BublSubcategory
+    }
+
     enum ActivityPreset: String, CaseIterable, Identifiable {
         case listening
         case reading
         case playing
         case watching
+        case doing
+        case learning
+        case practicing
+        case creating
         case workingOn
         case training
         case cooking
-        case living
+        case goingThrough
 
         var id: String { rawValue }
 
@@ -499,10 +571,14 @@ final class PostViewModel {
             case .reading: return isSpanish ? "leyendo" : "reading"
             case .playing: return isSpanish ? "jugando" : "playing"
             case .watching: return isSpanish ? "mirando" : "watching"
+            case .doing: return isSpanish ? "haciendo" : "doing"
+            case .learning: return isSpanish ? "aprendiendo" : "learning"
+            case .practicing: return isSpanish ? "practicando" : "practicing"
+            case .creating: return isSpanish ? "creando" : "creating"
             case .workingOn: return isSpanish ? "trabajando en" : "working on"
             case .training: return isSpanish ? "entrenando" : "training"
             case .cooking: return isSpanish ? "cocinando" : "cooking"
-            case .living: return isSpanish ? "atravesando" : "going through"
+            case .goingThrough: return isSpanish ? "atravesando" : "going through"
             }
         }
 
@@ -512,10 +588,14 @@ final class PostViewModel {
             case .reading: return isSpanish ? "leer" : "reading"
             case .playing: return isSpanish ? "jugar" : "playing"
             case .watching: return isSpanish ? "ver" : "watching"
+            case .doing: return isSpanish ? "hacer" : "doing"
+            case .learning: return isSpanish ? "aprender" : "learning"
+            case .practicing: return isSpanish ? "practicar" : "practicing"
+            case .creating: return isSpanish ? "crear" : "creating"
             case .workingOn: return isSpanish ? "estar con" : "working on"
             case .training: return isSpanish ? "entrenar" : "training"
             case .cooking: return isSpanish ? "cocinar" : "cooking"
-            case .living: return isSpanish ? "estar en" : "going through"
+            case .goingThrough: return isSpanish ? "estar en" : "going through"
             }
         }
 
@@ -525,10 +605,14 @@ final class PostViewModel {
             case .reading: return .hobbiesReading
             case .playing: return .hobbiesGaming
             case .watching: return .hobbiesOther
+            case .doing: return .lifeOrganization
+            case .learning: return .studySkills
+            case .practicing: return .creativityMusic
+            case .creating: return .creativityDesign
             case .workingOn: return .workSideProjects
             case .training: return .healthExercise
             case .cooking: return .hobbiesFood
-            case .living: return .lifeDecisions
+            case .goingThrough: return .lifeDecisions
             }
         }
     }
@@ -598,13 +682,13 @@ final class PostViewModel {
 
         guard !detail.isEmpty else {
             return isSpanish
-                ? "Quizás haya otras personas en algo parecido. Veamos qué opinan."
-                : "There may be other people in something similar. Let's see what they think."
+                ? "Estamos reuniendo voces que estén en algo parecido a lo que compartiste."
+                : "We're gathering voices that are in something similar to what you shared."
         }
 
         return isSpanish
-            ? "Quizás haya otros \(detail). Veamos qué opinan."
-            : "There may be others \(detail). Let's see what they think."
+            ? "Estamos armando una burbuja alrededor de \(detail), con gente que esté en algo parecido esta semana."
+            : "We're shaping a bubble around \(detail), with people in something similar this week."
     }
 
     func applyPreset(_ preset: ActivityPreset) {
@@ -662,9 +746,16 @@ final class PostViewModel {
         }
 
         let expiresAt = Calendar.current.date(byAdding: .day, value: 7, to: .now) ?? .now
-        let selectedSubcategory = selectedSubcategory.category == selectedCategory
+        let initialSubcategory = selectedSubcategory.category == selectedCategory
             ? selectedSubcategory
             : BublSubcategory.defaultOption(for: selectedCategory)
+        let resolvedClassification = resolveClassification(
+            activity: activity,
+            feeling: feeling,
+            initialSubcategory: initialSubcategory
+        )
+        let selectedCategory = resolvedClassification.category
+        let selectedSubcategory = resolvedClassification.subcategory
         let inferredTopicID = BublTopicInference.inferredTopic(
             tokens: BublTopicInference.rankingTokens(
                 activity: activity,
@@ -757,6 +848,78 @@ final class PostViewModel {
         NSLog("[EmbeddingGeneration] %@", message)
         print("[EmbeddingGeneration] \(message)")
     }
+
+    private func resolveClassification(activity: String, feeling: String, initialSubcategory: BublSubcategory) -> ClassificationResolution {
+        let normalized = BublTopicInference.normalizedText("\(activity) \(feeling)")
+
+        if containsAny(in: normalized, phrases: [
+            "animal crossing", "stardew", "minecraft", "fortnite", "valorant", "league of legends",
+            "zelda", "mario kart", "pokemon", "pokémon", "elden ring", "the sims", "sims",
+            "videojuego", "videojuegos", "gaming", "gamer", "switch", "nintendo", "playstation",
+            "xbox", "steam", "pc gaming", "cozy game", "cozy games"
+        ]) {
+            return ClassificationResolution(category: .hobbies, subcategory: .hobbiesGaming)
+        }
+
+        if containsAny(in: normalized, phrases: [
+            "guitarra", "guitar", "piano", "violin", "violín", "bateria", "batería",
+            "bajo", "ensayo", "band", "banda", "cancion", "canción", "songwriting",
+            "componer", "componiendo", "improvisar", "riff", "acordes", "acordes"
+        ]) {
+            return ClassificationResolution(category: .creativity, subcategory: .creativityMusic)
+        }
+
+        if containsAny(in: normalized, phrases: [
+            "idioma", "idiomas", "ingles", "inglés", "english", "frances", "francés",
+            "portugues", "portugués", "japones", "japonés", "language exchange",
+            "duolingo", "vocabulario", "grammar", "gramatica", "gramática"
+        ]) {
+            return ClassificationResolution(category: .study, subcategory: .studyLanguages)
+        }
+
+        if containsAny(in: normalized, phrases: [
+            "dibujo", "dibujando", "drawing", "illustration", "ilustracion", "ilustración",
+            "sketch", "croquis"
+        ]) {
+            return ClassificationResolution(category: .creativity, subcategory: .creativityDrawing)
+        }
+
+        if containsAny(in: normalized, phrases: [
+            "diseno", "diseño", "design", "figma", "ux", "ui", "brand", "branding"
+        ]) {
+            return ClassificationResolution(category: .creativity, subcategory: .creativityDesign)
+        }
+
+        if containsAny(in: normalized, phrases: [
+            "escribiendo", "escribir", "writing", "novela", "cuento", "poema", "poesía",
+            "poesia", "essay", "ensayo"
+        ]) {
+            return ClassificationResolution(category: .creativity, subcategory: .creativityWriting)
+        }
+
+        if containsAny(in: normalized, phrases: [
+            "partido", "partidos", "match", "torneo", "torneos", "tenis", "futbol", "fútbol",
+            "basket", "basquet", "básquet", "golf", "surf", "paddle", "padel", "pádel"
+        ]) {
+            return ClassificationResolution(category: .hobbies, subcategory: .hobbiesSports)
+        }
+
+        if initialSubcategory == .healthExercise,
+           containsAny(in: normalized, phrases: [
+               "practicar", "practicando", "practice", "practicing", "volver a tocar",
+               "volver a escribir", "volver a dibujar"
+           ]) {
+            if containsAny(in: normalized, phrases: ["guitarra", "guitar", "piano", "violin", "violín", "bateria", "batería"]) {
+                return ClassificationResolution(category: .creativity, subcategory: .creativityMusic)
+            }
+        }
+
+        return ClassificationResolution(category: initialSubcategory.category, subcategory: initialSubcategory)
+    }
+
+    private func containsAny(in text: String, phrases: [String]) -> Bool {
+        phrases.contains { text.contains($0) }
+    }
 }
 
 @Observable
@@ -766,81 +929,39 @@ final class FeedViewModel {
         category: "FeedSelection"
     )
     private var client: SupabaseClient { SupabaseConfig.client }
-    private let embeddingService = LegacyEmbeddingService()
 
     var myBubl: Bubl?
     var feed: [Bubl] = []
     var isLoading = false
     var errorMessage: String?
+    var newRelatedCount = 0
 
     var hasPostedThisWeek: Bool { myBubl != nil }
+    var hasUnseenRelatedBubls: Bool { newRelatedCount > 0 }
 
     func refresh(currentUserID: UUID) async {
         isLoading = true
         defer { isLoading = false }
 
         let weekID = WeekID.current()
-        let nowString = ISO8601DateFormatter().string(from: .now)
 
         log("Refreshing related bubls for user=\(currentUserID.uuidString) week=\(weekID)")
 
         do {
-            let mineResponse = try await client
-                .from("bubls")
-                .select()
-                .eq("user_id", value: currentUserID)
-                .eq("week_id", value: weekID)
-                .eq("is_active", value: true)
-                .eq("is_flagged", value: false)
-                .gt("expires_at", value: nowString)
-                .order("created_at", ascending: false)
-                .limit(1)
-                .execute()
-
-            let myRows = try JSONDecoder.bublDecoder.decode([Bubl].self, from: mineResponse.data)
-            myBubl = myRows.first
-
-            guard let mine = myBubl else {
-                log("No own bubl found for current week; skipping related selection")
-                feed = []
-                errorMessage = nil
-                return
-            }
-
-            log(
-                """
-                Own bubl base id=\(mine.id.uuidString) category=\(mine.category.rawValue)
-                cluster=\(mine.clusterLabel ?? "nil") activity=\(mine.activityText)
-                """
-            )
-
-            let allResponse = try await client
-                .from("bubls")
-                .select()
-                .eq("week_id", value: weekID)
-                .eq("is_active", value: true)
-                .eq("is_flagged", value: false)
-                .gt("expires_at", value: nowString)
-                .neq("user_id", value: currentUserID)
-                .order("created_at", ascending: false)
-                .limit(150)
-                .execute()
-
-            let allRows = try JSONDecoder.bublDecoder.decode([Bubl].self, from: allResponse.data)
-            let embeddingMatches = try? await embeddingService.matchBubls(bublID: mine.id, limit: 24)
-            if let embeddingMatches {
-                let summary = embeddingMatches
-                    .map { "\($0.id.uuidString)=\(String(format: "%.3f", $0.distance))" }
-                    .joined(separator: ", ")
-                log("Embedding ranking loaded count=\(embeddingMatches.count) matches=[\(summary)]")
-            } else {
-                log("Embedding ranking unavailable; falling back to heuristic ordering")
-            }
-            feed = curatedFeed(from: allRows, mine: mine, embeddingMatches: embeddingMatches ?? [])
+            try await loadLiveFeedViaRPC(currentUserID: currentUserID, weekID: weekID)
+            try await markFeedSeen(currentUserID: currentUserID, weekID: weekID)
             errorMessage = nil
         } catch {
-            log("Failed to refresh related bubls: \(error.localizedDescription)")
-            errorMessage = "No pudimos cargar tu burbuja."
+            log("RPC live feed failed; falling back to direct queries: \(error.localizedDescription)")
+
+            do {
+                try await loadLiveFeedFallback(currentUserID: currentUserID, weekID: weekID)
+                try await markFeedSeen(currentUserID: currentUserID, weekID: weekID)
+                errorMessage = nil
+            } catch {
+                log("Failed to refresh related bubls after fallback: \(error.localizedDescription)")
+                errorMessage = "No pudimos cargar tu burbuja. \(error.localizedDescription)"
+            }
         }
     }
 
@@ -855,96 +976,11 @@ final class FeedViewModel {
 
             myBubl = nil
             feed = []
+            newRelatedCount = 0
             errorMessage = nil
         } catch {
             errorMessage = "No pudimos reiniciar esta semana."
         }
-    }
-
-    private let maxEmbeddingDistance = 0.38
-    private let embeddingDistanceSlack = 0.08
-
-    private func curatedFeed(from items: [Bubl], mine: Bubl, embeddingMatches: [LegacyEmbeddingService.Match]) -> [Bubl] {
-        let orderedCategories = [mine.category] + mine.category.fallbackOrder
-        var selected: [Bubl] = []
-        var seen = Set<UUID>()
-        var activityFingerprintCounts: [String: Int] = [:]
-        let normalizedMineCluster = normalizedClusterLabel(for: mine)
-        let mineTokens = rankingTokens(for: mine)
-        let mineTopic = inferredTopic(for: mine)
-        let embeddingRanks = Dictionary(uniqueKeysWithValues: embeddingMatches.enumerated().map { ($1.id, $0) })
-        let embeddingDistances = Dictionary(uniqueKeysWithValues: embeddingMatches.map { ($0.id, $0.distance) })
-
-        log(
-            """
-            Curating related bubls with criterion=category+cluster+fallbacks primary=\(mine.category.rawValue)
-            cluster=\(normalizedMineCluster ?? "nil")
-            inferred_topic=\(mineTopic ?? "nil")
-            strict_cluster_mode=\(normalizedMineCluster != nil)
-            fallbacks=\(mine.category.fallbackOrder.map(\.rawValue).joined(separator: " > "))
-            candidates=\(items.count)
-            """
-        )
-
-        for category in orderedCategories {
-            if normalizedMineCluster != nil && category != mine.category {
-                log("Stopping before fallback category=\(category.rawValue) because strict_cluster_mode is enabled")
-                break
-            }
-
-            let categoryMatches = items
-                .filter { $0.category == category && !seen.contains($0.id) }
-                .sorted { rank(lhs: $0, rhs: $1, relativeTo: mine, mineTokens: mineTokens, embeddingRanks: embeddingRanks) }
-
-            let rawSameClusterMatches = categoryMatches.filter {
-                guard let normalizedMineCluster else { return false }
-                return normalizedClusterLabel(for: $0) == normalizedMineCluster
-            }
-            let sameClusterMatches = filterDistantEmbeddingMatches(
-                rawSameClusterMatches,
-                embeddingDistances: embeddingDistances
-            )
-            let otherCategoryMatches = categoryMatches.filter { candidate in
-                guard let normalizedMineCluster else { return true }
-                return normalizedClusterLabel(for: candidate) != normalizedMineCluster
-            }
-
-            log(
-                """
-                Category pass=\(category.rawValue)
-                same_cluster_matched=\(sameClusterMatches.count) same_cluster_candidates=\(self.describe(sameClusterMatches, relativeTo: mineTokens, embeddingRanks: embeddingRanks, embeddingDistances: embeddingDistances))
-                other_matched=\(otherCategoryMatches.count) other_candidates=\(self.describe(otherCategoryMatches, relativeTo: mineTokens, embeddingRanks: embeddingRanks, embeddingDistances: embeddingDistances))
-                """
-            )
-
-            for item in sameClusterMatches {
-                guard shouldInclude(item, fingerprintCounts: &activityFingerprintCounts) else { continue }
-                seen.insert(item.id)
-                selected.append(item)
-                if selected.count >= 12 {
-                    log("Related bubls final selection count=\(selected.count) results=\(self.describe(selected))")
-                    return selected
-                }
-            }
-
-            if normalizedMineCluster != nil && category == mine.category {
-                log("Strict cluster mode active; skipping other clusters and category fallbacks after same-cluster selection")
-                break
-            }
-
-            for item in otherCategoryMatches {
-                guard shouldInclude(item, fingerprintCounts: &activityFingerprintCounts) else { continue }
-                seen.insert(item.id)
-                selected.append(item)
-                if selected.count >= 12 {
-                    log("Related bubls final selection count=\(selected.count) results=\(self.describe(selected))")
-                    return selected
-                }
-            }
-        }
-
-        log("Related bubls final selection count=\(selected.count) results=\(self.describe(selected))")
-        return selected
     }
 
     private func describe(_ bubls: [Bubl]) -> String {
@@ -954,152 +990,186 @@ final class FeedViewModel {
             .joined(separator: ", ")
     }
 
-    private func describe(_ bubls: [Bubl], relativeTo mineTokens: Set<String>, embeddingRanks: [UUID: Int], embeddingDistances: [UUID: Double]) -> String {
-        guard !bubls.isEmpty else { return "[]" }
-        return bubls
-            .map {
-                let score = similarityScore(for: $0, mineTokens: mineTokens, mineCluster: nil)
-                let embeddingRank = embeddingRanks[$0.id].map(String.init) ?? "nil"
-                let embeddingDistance = embeddingDistances[$0.id].map { String(format: "%.3f", $0) } ?? "nil"
-                return "\($0.id.uuidString){category=\($0.category.rawValue), subcategory=\($0.canonicalSubcategoryID ?? "nil"), topic=\(inferredTopic(for: $0) ?? "nil"), embedding_rank=\(embeddingRank), embedding_distance=\(embeddingDistance), score=\(String(format: "%.3f", score)), activity=\($0.activityText)}"
-            }
-            .joined(separator: ", ")
-    }
-
-    private func filterDistantEmbeddingMatches(_ candidates: [Bubl], embeddingDistances: [UUID: Double]) -> [Bubl] {
-        let distances = candidates.compactMap { embeddingDistances[$0.id] }
-        guard let bestDistance = distances.min() else {
-            return candidates
+    private func loadLiveFeedViaRPC(currentUserID: UUID, weekID: String) async throws {
+        struct Params: Encodable {
+            let current_user_id: UUID
+            let current_week_id: String
+            let match_count: Int
         }
 
-        let threshold = min(maxEmbeddingDistance, bestDistance + embeddingDistanceSlack)
-        let filtered = candidates.filter { candidate in
-            guard let distance = embeddingDistances[candidate.id] else { return true }
-            return distance <= threshold
+        let response = try await client
+            .rpc(
+                "get_my_live_bubl_feed",
+                params: Params(
+                    current_user_id: currentUserID,
+                    current_week_id: weekID,
+                    match_count: 12
+                )
+            )
+            .execute()
+
+        let payload = try JSONDecoder.bublDecoder.decode(FeedPayload.self, from: response.data)
+        myBubl = payload.myBubl
+        feed = payload.relatedBubls
+        newRelatedCount = payload.newRelatedCount
+
+        guard let myBubl else {
+            log("No own bubl found for current week; skipping related selection")
+            feed = []
+            newRelatedCount = 0
+            return
         }
 
-        if filtered.count != candidates.count {
-            log("Filtered distant embedding matches best_distance=\(String(format: "%.3f", bestDistance)) threshold=\(String(format: "%.3f", threshold)) kept=\(filtered.count) dropped=\(candidates.count - filtered.count)")
-        }
-
-        return filtered.isEmpty ? candidates : filtered
-    }
-
-    private func normalizedClusterLabel(for bubl: Bubl) -> String? {
-        guard let cluster = bubl.canonicalSubcategoryID?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-              !cluster.isEmpty else {
-            return nil
-        }
-        return cluster
-    }
-
-    private func rank(lhs: Bubl, rhs: Bubl, relativeTo mine: Bubl, mineTokens: Set<String>, embeddingRanks: [UUID: Int]) -> Bool {
-        let lhsEmbeddingRank = embeddingRanks[lhs.id]
-        let rhsEmbeddingRank = embeddingRanks[rhs.id]
-
-        if let lhsEmbeddingRank, let rhsEmbeddingRank, lhsEmbeddingRank != rhsEmbeddingRank {
-            return lhsEmbeddingRank < rhsEmbeddingRank
-        }
-        if lhsEmbeddingRank != nil && rhsEmbeddingRank == nil {
-            return true
-        }
-        if lhsEmbeddingRank == nil && rhsEmbeddingRank != nil {
-            return false
-        }
-
-        let mineCluster = normalizedClusterLabel(for: mine)
-        let lhsScore = similarityScore(for: lhs, mineTokens: mineTokens, mineCluster: mineCluster)
-        let rhsScore = similarityScore(for: rhs, mineTokens: mineTokens, mineCluster: mineCluster)
-
-        if abs(lhsScore - rhsScore) > 0.001 {
-            return lhsScore > rhsScore
-        }
-
-        return lhs.createdAt > rhs.createdAt
-    }
-
-    private func similarityScore(for candidate: Bubl, mineTokens: Set<String>, mineCluster: String?) -> Double {
-        let candidateTokens = rankingTokens(for: candidate)
-        guard !mineTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
-
-        let overlap = mineTokens.intersection(candidateTokens)
-        let unionCount = mineTokens.union(candidateTokens).count
-        let jaccard = unionCount > 0 ? Double(overlap.count) / Double(unionCount) : 0
-
-        let properNounBoost = overlap.filter { $0.count >= 5 }.isEmpty ? 0.0 : 0.15
-        let phraseBoost = sharedPhraseBoost(candidate: candidate, mineTokens: mineTokens)
-        let topicBoost = inferredTopicBoost(for: candidate, mineTokens: mineTokens, mineCluster: mineCluster)
-
-        return jaccard + properNounBoost + phraseBoost + topicBoost
-    }
-
-    private func sharedPhraseBoost(candidate: Bubl, mineTokens: Set<String>) -> Double {
-        let combined = normalizedText("\(candidate.activityText) \(candidate.feelingText)")
-        let boosters = mineTokens.filter { token in token.count >= 6 && combined.contains(token) }
-        return boosters.isEmpty ? 0.0 : min(0.2, Double(boosters.count) * 0.05)
-    }
-
-    private func rankingTokens(for bubl: Bubl) -> Set<String> {
-        BublTopicInference.rankingTokens(activity: bubl.activityText, feeling: bubl.feelingText)
-    }
-
-    private func normalizedText(_ text: String) -> String {
-        BublTopicInference.normalizedText(text)
-    }
-
-    private func shouldInclude(_ bubl: Bubl, fingerprintCounts: inout [String: Int]) -> Bool {
-        let fingerprint = activityFingerprint(for: bubl)
-        let count = fingerprintCounts[fingerprint, default: 0]
-        let limit = duplicateLimit(for: bubl)
-
-        guard count < limit else {
-            log("Skipping duplicate-heavy candidate id=\(bubl.id.uuidString) subcategory=\(bubl.canonicalSubcategoryID ?? "nil") fingerprint=\(fingerprint)")
-            return false
-        }
-
-        fingerprintCounts[fingerprint] = count + 1
-        return true
-    }
-
-    private func duplicateLimit(for bubl: Bubl) -> Int {
-        if normalizedClusterLabel(for: bubl) == "music" {
-            return 3
-        }
-        return 2
-    }
-
-    private func activityFingerprint(for bubl: Bubl) -> String {
-        normalizedText(bubl.activityText)
-            .replacingOccurrences(of: #"\(\d+(?:st|nd|rd|th)? weekly variant\)"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func inferredTopicBoost(for candidate: Bubl, mineTokens: Set<String>, mineCluster: String?) -> Double {
-        let mineTopic = BublTopicInference.inferredTopic(tokens: mineTokens, cluster: mineCluster)
-        let candidateTopic = inferredTopic(for: candidate)
-
-        guard let mineTopic, let candidateTopic else { return 0 }
-        return mineTopic == candidateTopic ? 0.35 : 0
-    }
-
-    private func inferredTopic(for bubl: Bubl) -> String? {
-        if let topicID = bubl.canonicalTopicID, !topicID.isEmpty {
-            return topicID
-        }
-        guard normalizedClusterLabel(for: bubl) != nil else { return nil }
-        return BublTopicInference.inferredTopic(
-            tokens: rankingTokens(for: bubl),
-            cluster: normalizedClusterLabel(for: bubl),
-            text: normalizedText("\(bubl.activityText) \(bubl.feelingText)")
+        log(
+            """
+            Own bubl base id=\(myBubl.id.uuidString) category=\(myBubl.category.rawValue)
+            subcategory=\(myBubl.canonicalSubcategoryID ?? "nil") activity=\(myBubl.activityText)
+            """
         )
+        log(
+            """
+            Live feed loaded from RPC count=\(feed.count) new=\(newRelatedCount)
+            results=\(self.describe(feed))
+            """
+        )
+    }
+
+    private func loadLiveFeedFallback(currentUserID: UUID, weekID: String) async throws {
+        let nowString = ISO8601DateFormatter().string(from: .now)
+
+        let mineResponse = try await client
+            .from("bubls")
+            .select()
+            .eq("user_id", value: currentUserID)
+            .eq("week_id", value: weekID)
+            .eq("is_active", value: true)
+            .eq("is_flagged", value: false)
+            .gt("expires_at", value: nowString)
+            .order("created_at", ascending: false)
+            .limit(1)
+            .execute()
+
+        let myRows = try JSONDecoder.bublDecoder.decode([Bubl].self, from: mineResponse.data)
+        myBubl = myRows.first
+
+        guard let myBubl else {
+            feed = []
+            newRelatedCount = 0
+            log("Fallback live feed found no own bubl for current week")
+            return
+        }
+
+        if let subcategory = myBubl.canonicalSubcategoryID, !subcategory.isEmpty {
+            feed = try await client
+                .from("bubls")
+                .select()
+                .eq("week_id", value: weekID)
+                .eq("is_active", value: true)
+                .eq("is_flagged", value: false)
+                .gt("expires_at", value: nowString)
+                .eq("subcategory_id", value: subcategory)
+                .neq("user_id", value: currentUserID)
+                .order("created_at", ascending: false)
+                .limit(12)
+                .execute()
+                .value
+
+            if feed.isEmpty, myBubl.subcategoryID == nil {
+                feed = try await client
+                    .from("bubls")
+                    .select()
+                    .eq("week_id", value: weekID)
+                    .eq("is_active", value: true)
+                    .eq("is_flagged", value: false)
+                    .gt("expires_at", value: nowString)
+                    .eq("cluster_label", value: subcategory)
+                    .neq("user_id", value: currentUserID)
+                    .order("created_at", ascending: false)
+                    .limit(12)
+                    .execute()
+                    .value
+            }
+        } else {
+            feed = []
+        }
+
+        let seenState = try await loadFeedSeenState(currentUserID: currentUserID)
+        newRelatedCount = countUnseenRelatedBubls(in: feed, seenState: seenState, weekID: weekID)
+
+        log(
+            """
+            Live feed loaded from direct-query fallback count=\(feed.count) new=\(newRelatedCount)
+            results=\(self.describe(feed))
+            """
+        )
+    }
+
+    private func loadFeedSeenState(currentUserID: UUID) async throws -> FeedSeenState? {
+        let response = try await client
+            .from("users")
+            .select("last_feed_seen_at,last_feed_seen_week_id")
+            .eq("id", value: currentUserID)
+            .limit(1)
+            .execute()
+
+        let rows = try JSONDecoder.bublDecoder.decode([FeedSeenState].self, from: response.data)
+        return rows.first
+    }
+
+    private func countUnseenRelatedBubls(in bubls: [Bubl], seenState: FeedSeenState?, weekID: String) -> Int {
+        guard !bubls.isEmpty else { return 0 }
+        guard let seenState else { return bubls.count }
+        guard seenState.lastFeedSeenWeekID == weekID else { return bubls.count }
+        guard let lastFeedSeenAt = seenState.lastFeedSeenAt else { return bubls.count }
+        return bubls.filter { $0.createdAt > lastFeedSeenAt }.count
+    }
+
+    private func markFeedSeen(currentUserID: UUID, weekID: String) async throws {
+        guard myBubl != nil else { return }
+
+        struct FeedSeenUpdate: Encodable {
+            let last_feed_seen_at: Date
+            let last_feed_seen_week_id: String
+        }
+
+        _ = try await client
+            .from("users")
+            .update(
+                FeedSeenUpdate(
+                    last_feed_seen_at: .now,
+                    last_feed_seen_week_id: weekID
+                )
+            )
+            .eq("id", value: currentUserID)
+            .execute()
     }
 
     private func log(_ message: String) {
         print("[FeedSelection] \(message)")
         NSLog("[FeedSelection] %@", message)
         logger.info("\(message, privacy: .public)")
+    }
+}
+
+private struct FeedPayload: Decodable {
+    let myBubl: Bubl?
+    let relatedBubls: [Bubl]
+    let newRelatedCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case myBubl = "my_bubl"
+        case relatedBubls = "related_bubls"
+        case newRelatedCount = "new_related_count"
+    }
+}
+
+private struct FeedSeenState: Decodable {
+    let lastFeedSeenAt: Date?
+    let lastFeedSeenWeekID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case lastFeedSeenAt = "last_feed_seen_at"
+        case lastFeedSeenWeekID = "last_feed_seen_week_id"
     }
 }
 
@@ -1130,24 +1200,133 @@ final class ReactionsViewModel {
     }
 
     func submit(kind: ReactionKind, bublID: UUID, userID: UUID) async {
-        struct NewReaction: Encodable {
+        struct TypedReaction: Encodable {
             let bubl_id: UUID
             let user_id: UUID
             let type: String
+            let text: String
+        }
+
+        struct LegacyReaction: Encodable {
+            let bubl_id: UUID
+            let user_id: UUID
+            let text: String
+        }
+
+        struct ExistingReactionRow: Decodable {
+            let id: UUID
         }
 
         do {
-            _ = try await client
-                .from("reactions")
-                .upsert(
-                    NewReaction(bubl_id: bublID, user_id: userID, type: kind.rawValue),
-                    onConflict: "bubl_id,user_id"
-                )
-                .execute()
+            do {
+                try await submitTypedReaction(kind: kind, bublID: bublID, userID: userID)
+            } catch {
+                let message = error.localizedDescription.lowercased()
+                if message.contains("could not find the 'type' column")
+                    || message.contains("column reactions.type does not exist")
+                    || message.contains("schema cache") {
+                    try await submitLegacyReaction(kind: kind, bublID: bublID, userID: userID)
+                } else {
+                    throw error
+                }
+            }
 
             await load(bublID: bublID)
         } catch {
-            errorMessage = "No pudimos guardar tu reaccion."
+            errorMessage = "No pudimos guardar tu reaccion. \(error.localizedDescription)"
+        }
+
+        func submitTypedReaction(kind: ReactionKind, bublID: UUID, userID: UUID) async throws {
+            do {
+                _ = try await client
+                    .from("reactions")
+                    .upsert(
+                        TypedReaction(
+                            bubl_id: bublID,
+                            user_id: userID,
+                            type: kind.rawValue,
+                            text: kind.label
+                        ),
+                        onConflict: "bubl_id,user_id"
+                    )
+                    .execute()
+            } catch {
+                if requiresManualConflictFallback(error) {
+                    try await upsertReactionManually(
+                        bublID: bublID,
+                        userID: userID,
+                        values: [
+                            "bubl_id": AnyJSON.string(bublID.uuidString),
+                            "user_id": AnyJSON.string(userID.uuidString),
+                            "type": AnyJSON.string(kind.rawValue),
+                            "text": AnyJSON.string(kind.label)
+                        ]
+                    )
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        func submitLegacyReaction(kind: ReactionKind, bublID: UUID, userID: UUID) async throws {
+            do {
+                _ = try await client
+                    .from("reactions")
+                    .upsert(
+                        LegacyReaction(
+                            bubl_id: bublID,
+                            user_id: userID,
+                            text: kind.label
+                        ),
+                        onConflict: "bubl_id,user_id"
+                    )
+                    .execute()
+            } catch {
+                if requiresManualConflictFallback(error) {
+                    try await upsertReactionManually(
+                        bublID: bublID,
+                        userID: userID,
+                        values: [
+                            "bubl_id": AnyJSON.string(bublID.uuidString),
+                            "user_id": AnyJSON.string(userID.uuidString),
+                            "text": AnyJSON.string(kind.label)
+                        ]
+                    )
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        func upsertReactionManually(bublID: UUID, userID: UUID, values: [String: AnyJSON]) async throws {
+            let response = try await client
+                .from("reactions")
+                .select("id")
+                .eq("bubl_id", value: bublID)
+                .eq("user_id", value: userID)
+                .limit(1)
+                .execute()
+
+            let rows = try JSONDecoder.bublDecoder.decode([ExistingReactionRow].self, from: response.data)
+
+            if let existing = rows.first {
+                _ = try await client
+                    .from("reactions")
+                    .update(values)
+                    .eq("id", value: existing.id)
+                    .execute()
+            } else {
+                _ = try await client
+                    .from("reactions")
+                    .insert(values)
+                    .execute()
+            }
+        }
+
+        func requiresManualConflictFallback(_ error: Error) -> Bool {
+            let message = error.localizedDescription.lowercased()
+            return message.contains("no unique or exclusion constraint")
+                || message.contains("on conflict specification")
         }
     }
 }

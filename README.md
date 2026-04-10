@@ -77,3 +77,33 @@ Notes:
 - Each seeded bubl expires in 7 days (`expires_at`), so it naturally disappears.
 - The script now sets `category_id` directly for fixed-bubble feed testing.
 - Re-run weekly only if you want a consistently populated demo/staging environment.
+
+### Weekly refresh helper
+
+If a new ISO week starts and you want to rehydrate demo/staging data in one shot, run:
+
+```bash
+SUPABASE_URL="https://your-project.supabase.co" \
+SUPABASE_SERVICE_ROLE_KEY="your-service-role-key" \
+node supabase/scripts/weekly_refresh.mjs
+```
+
+What it does:
+- runs `seed_bubls.mjs` for the current ISO week
+- then runs `backfill_bubl_embeddings.mjs` for that same week
+
+Defaults in this wrapper:
+- `RESET_SEED=1`
+- `ONLY_NULL=1`
+
+You can still override:
+
+```bash
+RESET_SEED=0 \
+BUBL_SEED_COUNT=100 \
+BUBL_EMBED_LIMIT=200 \
+BUBL_EMBED_CONCURRENCY=4 \
+SUPABASE_URL="https://your-project.supabase.co" \
+SUPABASE_SERVICE_ROLE_KEY="your-service-role-key" \
+node supabase/scripts/weekly_refresh.mjs
+```

@@ -12,9 +12,9 @@
 		A00000000000000000000013 /* HubmanViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* HubmanViewModel.swift */; };
 		A00000000000000000000014 /* HubmanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* HubmanModels.swift */; };
 		A00000000000000000000015 /* Localization/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006 /* Localization/Localizable.xcstrings */; };
+		A00000000000000000000016 /* BublLogo.png in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000009 /* BublLogo.png */; };
 		E62336FE2F6A3C750066E392 /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = E62336FD2F6A3C750066E392 /* Auth */; };
 		E62337002F6A3C750066E392 /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = E62336FF2F6A3C750066E392 /* Functions */; };
-		E62337022F6A3C750066E392 /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = E62337012F6A3C750066E392 /* PostgREST */; };
 		E62337042F6A3C750066E392 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = E62337032F6A3C750066E392 /* Realtime */; };
 		E62337062F6A3C750066E392 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = E62337052F6A3C750066E392 /* Storage */; };
 		E62337082F6A3C750066E392 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = E62337072F6A3C750066E392 /* Supabase */; };
@@ -29,6 +29,7 @@
 		A00000000000000000000006 /* Localization/Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localization/Localizable.xcstrings; sourceTree = "<group>"; };
 		A00000000000000000000007 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		A00000000000000000000008 /* Local.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.example.xcconfig; sourceTree = "<group>"; };
+		A00000000000000000000009 /* BublLogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BublLogo.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -36,7 +37,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E62337022F6A3C750066E392 /* PostgREST in Frameworks */,
 				E62337002F6A3C750066E392 /* Functions in Frameworks */,
 				E62337082F6A3C750066E392 /* Supabase in Frameworks */,
 				E62336FE2F6A3C750066E392 /* Auth in Frameworks */,
@@ -81,6 +81,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000001 /* HubmanApp.swift */,
+				A00000000000000000000009 /* BublLogo.png */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -146,7 +147,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2600;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					A00000000000000000000041 = {
 						CreatedOnToolsVersion = 26.3;
@@ -183,6 +184,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A00000000000000000000015 /* Localization/Localizable.xcstrings in Resources */,
+				A00000000000000000000016 /* BublLogo.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,14 +217,8 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = bubl;
-				INFOPLIST_KEY_SUPABASE_ANON_KEY = "$(SUPABASE_ANON_KEY)";
-				INFOPLIST_KEY_SUPABASE_URL = "$(SUPABASE_URL)";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Hubman/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -252,14 +248,8 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = bubl;
-				INFOPLIST_KEY_SUPABASE_ANON_KEY = "$(SUPABASE_ANON_KEY)";
-				INFOPLIST_KEY_SUPABASE_URL = "$(SUPABASE_URL)";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Hubman/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -399,11 +389,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E62336FC2F6A3C750066E392 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Functions;
-		};
-		E62337012F6A3C750066E392 /* PostgREST */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E62336FC2F6A3C750066E392 /* XCRemoteSwiftPackageReference "supabase-swift" */;
-			productName = PostgREST;
 		};
 		E62337032F6A3C750066E392 /* Realtime */ = {
 			isa = XCSwiftPackageProductDependency;
