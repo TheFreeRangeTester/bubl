@@ -160,3 +160,15 @@ Acceptance Criteria:
 - The seed script uses stable seed identities so reruns do not require creating a new set of seed users each time.
 - The backfill script finds current-week bubls with missing embeddings and calls `generate-embedding` for each row.
 - The backfill script can be limited by week, row count, and concurrency through environment variables.
+
+## FEAT-14 Feed novelty tracking for future push notifications
+**Priority**: Medium
+**Status**: Done
+**Related Components**: `Hubman/ViewModels/HubmanViewModel.swift`, `supabase/migrations/202604021530_feed_seen_state.sql`
+
+Acceptance Criteria:
+- The system stores when the current user last viewed their feed and which ISO week that view belonged to.
+- The live feed payload includes a `new_related_count` value representing related bubls that appeared since the user's previous seen state.
+- The app computes the same unseen count in the fallback feed path when the live RPC is unavailable.
+- After a successful feed refresh with an active current-week bubl, the app marks the feed as seen for that user and week.
+- The client exposes whether the current feed has unseen related bubls so notification logic can later trigger on real novelty instead of generic refresh timing.

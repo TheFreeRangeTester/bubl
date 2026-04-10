@@ -12,6 +12,7 @@
 		A00000000000000000000013 /* HubmanViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* HubmanViewModel.swift */; };
 		A00000000000000000000014 /* HubmanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* HubmanModels.swift */; };
 		A00000000000000000000015 /* Localization/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006 /* Localization/Localizable.xcstrings */; };
+		A00000000000000000000016 /* BublLogo.png in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000009 /* BublLogo.png */; };
 		E62336FE2F6A3C750066E392 /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = E62336FD2F6A3C750066E392 /* Auth */; };
 		E62337002F6A3C750066E392 /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = E62336FF2F6A3C750066E392 /* Functions */; };
 		E62337042F6A3C750066E392 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = E62337032F6A3C750066E392 /* Realtime */; };
@@ -28,6 +29,7 @@
 		A00000000000000000000006 /* Localization/Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localization/Localizable.xcstrings; sourceTree = "<group>"; };
 		A00000000000000000000007 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		A00000000000000000000008 /* Local.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.example.xcconfig; sourceTree = "<group>"; };
+		A00000000000000000000009 /* BublLogo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = BublLogo.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,6 +81,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000001 /* HubmanApp.swift */,
+				A00000000000000000000009 /* BublLogo.png */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -181,6 +184,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A00000000000000000000015 /* Localization/Localizable.xcstrings in Resources */,
+				A00000000000000000000016 /* BublLogo.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

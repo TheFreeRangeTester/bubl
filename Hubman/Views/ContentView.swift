@@ -6,6 +6,59 @@ private func uiText(_ es: String, _ en: String) -> String {
     Locale.current.language.languageCode?.identifier == "es" ? es : en
 }
 
+private enum BublLogoStyle {
+    case full
+    case mark
+}
+
+private struct BublLogoArtwork: View {
+    let width: CGFloat
+    let height: CGFloat
+    let glow: Bool
+    let style: BublLogoStyle
+
+    var body: some View {
+        Group {
+            if let uiImage = UIImage(named: "BublLogo.png") ?? UIImage(named: "BublLogo") {
+                if style == .full {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .scaledToFit()
+                } else {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .scaledToFill()
+                        .frame(width: width * 1.18, height: height * 1.18)
+                        .offset(y: -height * 0.18)
+                        .clipped()
+                }
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.65)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: min(width, height) * 0.28, weight: .semibold))
+                        .foregroundStyle(BublPalette.ink)
+                }
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: min(width, height) * 0.22, style: .continuous))
+        .shadow(color: glow ? BublPalette.accent.opacity(0.28) : BublPalette.ink.opacity(0.08), radius: glow ? 22 : 8, x: 0, y: glow ? 10 : 4)
+    }
+}
+
 struct ContentView: View {
     @Environment(AuthManager.self) private var authManager
     @State private var isPreviewMode = false
@@ -56,9 +109,7 @@ private struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Spacer(minLength: 24)
 
-                Text("bubl")
-                    .font(.system(size: 52, weight: .semibold, design: .rounded))
-                    .foregroundStyle(BublPalette.ink)
+                BublLogoArtwork(width: 164, height: 164, glow: true, style: .full)
 
                 Text(uiText("Compartí cómo te está pegando algo que estás viviendo esta semana.", "Share how something you are living through is hitting you this week."))
                     .font(.bublRounded(.title3, weight: .medium))
@@ -626,6 +677,7 @@ private struct FeedView: View {
     @State private var pulseEmptyHero = false
     @State private var revealOpenedBubble = false
     @State private var revealRelatedBubble = false
+    @State private var revealNewVoicesBanner = false
 
     var body: some View {
         NavigationStack {
@@ -652,20 +704,10 @@ private struct FeedView: View {
 
                                     Spacer(minLength: 0)
 
-                                    ZStack {
-                                        Circle()
-                                            .fill(BublPalette.card.opacity(0.78))
-                                            .frame(width: 60, height: 60)
-                                            .scaleEffect(pulseEmptyHero ? 1.02 : 0.98)
-                                            .opacity(pulseEmptyHero ? 1.0 : 0.92)
-                                            .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: pulseEmptyHero)
-
-                                        Image(systemName: "bubble.left.and.bubble.right.fill")
-                                            .font(.system(size: 24, weight: .semibold))
-                                            .foregroundStyle(BublPalette.ink)
-                                            .scaleEffect(pulseEmptyHero ? 1.015 : 0.985)
-                                            .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: pulseEmptyHero)
-                                    }
+                                    BublLogoArtwork(width: 132, height: 132, glow: false, style: .full)
+                                        .scaleEffect(pulseEmptyHero ? 1.0 : 0.985)
+                                        .opacity(pulseEmptyHero ? 1.0 : 0.96)
+                                        .animation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true), value: pulseEmptyHero)
                                 }
 
                                 HStack(spacing: 10) {
@@ -746,6 +788,11 @@ private struct FeedView: View {
 
                     if let mine = viewModel.myBubl {
                         VStack(alignment: .leading, spacing: 16) {
+                            if viewModel.hasUnseenRelatedBubls && revealNewVoicesBanner {
+                                NewVoicesBanner(count: viewModel.newRelatedCount)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+
                             SectionHeader(
                                 title: uiText("Tu burbuja", "Your bubble"),
                                 subtitle: uiText("Esto está diciendo gente en la misma esta semana.", "This is what people in the same kind of situation are saying this week.")
@@ -829,6 +876,7 @@ private struct FeedView: View {
                 if viewModel.myBubl == nil {
                     revealOpenedBubble = false
                     revealRelatedBubble = false
+                    revealNewVoicesBanner = false
                     return
                 }
 
@@ -841,6 +889,19 @@ private struct FeedView: View {
 
                 withAnimation(.spring(response: 0.52, dampingFraction: 0.9).delay(0.12)) {
                     revealRelatedBubble = true
+                }
+            }
+            .onChange(of: viewModel.newRelatedCount) {
+                guard viewModel.hasUnseenRelatedBubls else {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        revealNewVoicesBanner = false
+                    }
+                    return
+                }
+
+                revealNewVoicesBanner = false
+                withAnimation(.spring(response: 0.46, dampingFraction: 0.88).delay(0.08)) {
+                    revealNewVoicesBanner = true
                 }
             }
             .sheet(isPresented: $showingPostFlow) {
@@ -952,26 +1013,8 @@ private struct MatchingBubbleView: View {
             Spacer()
 
             ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [BublPalette.accentSoft, BublPalette.accentLime.opacity(0.65)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 156, height: 156)
-                    .scaleEffect(animate ? 1.06 : 0.94)
-
-                Circle()
-                    .fill(BublPalette.card)
-                    .frame(width: 100, height: 100)
-                    .overlay(
-                        Image(systemName: "circle.grid.2x2.fill")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(BublPalette.ink)
-                    )
-                    .offset(y: animate ? -2 : 4)
+                BublLogoArtwork(width: 170, height: 170, glow: true, style: .full)
+                    .scaleEffect(animate ? 1.04 : 0.96)
 
                 Circle()
                     .fill(BublPalette.accentSoft.opacity(0.8))
@@ -1269,11 +1312,9 @@ private struct StepFlowHeader: View {
                 ZStack {
                     Circle()
                         .fill(BublPalette.accentSoft)
-                        .frame(width: 42, height: 42)
+                        .frame(width: 74, height: 74)
 
-                    Image(systemName: accentIcon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(BublPalette.ink)
+                    BublLogoArtwork(width: 92, height: 92, glow: false, style: .mark)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -1321,10 +1362,9 @@ private struct StepFlowHeader: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay(alignment: .topTrailing) {
-            Circle()
-                .fill(BublPalette.card.opacity(0.8))
-                .frame(width: 54, height: 54)
-                .offset(x: 12, y: -12)
+            BublLogoArtwork(width: 46, height: 46, glow: false, style: .mark)
+                .opacity(0.18)
+                .offset(x: 8, y: -8)
         }
     }
 }
@@ -1832,6 +1872,62 @@ private struct PartialBubbleCard: View {
         .padding(20)
         .background(BublPalette.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+private struct NewVoicesBanner: View {
+    let count: Int
+
+    private var titleText: String {
+        if Locale.current.language.languageCode?.identifier == "es" {
+            return count == 1
+                ? "Tu bubl sumó 1 voz nueva"
+                : "Tu bubl sumó \(count) voces nuevas"
+        }
+
+        return count == 1
+            ? "Your bubl has 1 new voice"
+            : "Your bubl has \(count) new voices"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(BublPalette.accentSoft)
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(titleText)
+                    .font(.bublRounded(.subheadline, weight: .semibold))
+                    .foregroundStyle(BublPalette.ink)
+
+                Text(uiText("Aparecieron desde la última vez que abriste tu burbuja.", "These showed up since the last time you opened your bubble."))
+                    .font(.bublRounded(.footnote))
+                    .foregroundStyle(BublPalette.muted)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [BublPalette.card, BublPalette.accentSoft.opacity(0.62)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(BublPalette.ornament.opacity(0.12), lineWidth: 1)
+        )
     }
 }
 

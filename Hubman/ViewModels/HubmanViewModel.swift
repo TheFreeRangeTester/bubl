@@ -934,8 +934,10 @@ final class FeedViewModel {
     var feed: [Bubl] = []
     var isLoading = false
     var errorMessage: String?
+    var newRelatedCount = 0
 
     var hasPostedThisWeek: Bool { myBubl != nil }
+    var hasUnseenRelatedBubls: Bool { newRelatedCount > 0 }
 
     func refresh(currentUserID: UUID) async {
         isLoading = true
@@ -947,12 +949,14 @@ final class FeedViewModel {
 
         do {
             try await loadLiveFeedViaRPC(currentUserID: currentUserID, weekID: weekID)
+            try await markFeedSeen(currentUserID: currentUserID, weekID: weekID)
             errorMessage = nil
         } catch {
             log("RPC live feed failed; falling back to direct queries: \(error.localizedDescription)")
 
             do {
                 try await loadLiveFeedFallback(currentUserID: currentUserID, weekID: weekID)
+                try await markFeedSeen(currentUserID: currentUserID, weekID: weekID)
                 errorMessage = nil
             } catch {
                 log("Failed to refresh related bubls after fallback: \(error.localizedDescription)")
@@ -972,6 +976,7 @@ final class FeedViewModel {
 
             myBubl = nil
             feed = []
+            newRelatedCount = 0
             errorMessage = nil
         } catch {
             errorMessage = "No pudimos reiniciar esta semana."
@@ -1006,10 +1011,12 @@ final class FeedViewModel {
         let payload = try JSONDecoder.bublDecoder.decode(FeedPayload.self, from: response.data)
         myBubl = payload.myBubl
         feed = payload.relatedBubls
+        newRelatedCount = payload.newRelatedCount
 
         guard let myBubl else {
             log("No own bubl found for current week; skipping related selection")
             feed = []
+            newRelatedCount = 0
             return
         }
 
@@ -1021,7 +1028,7 @@ final class FeedViewModel {
         )
         log(
             """
-            Live feed loaded from RPC count=\(feed.count)
+            Live feed loaded from RPC count=\(feed.count) new=\(newRelatedCount)
             results=\(self.describe(feed))
             """
         )
@@ -1047,6 +1054,7 @@ final class FeedViewModel {
 
         guard let myBubl else {
             feed = []
+            newRelatedCount = 0
             log("Fallback live feed found no own bubl for current week")
             return
         }
@@ -1085,12 +1093,55 @@ final class FeedViewModel {
             feed = []
         }
 
+        let seenState = try await loadFeedSeenState(currentUserID: currentUserID)
+        newRelatedCount = countUnseenRelatedBubls(in: feed, seenState: seenState, weekID: weekID)
+
         log(
             """
-            Live feed loaded from direct-query fallback count=\(feed.count)
+            Live feed loaded from direct-query fallback count=\(feed.count) new=\(newRelatedCount)
             results=\(self.describe(feed))
             """
         )
+    }
+
+    private func loadFeedSeenState(currentUserID: UUID) async throws -> FeedSeenState? {
+        let response = try await client
+            .from("users")
+            .select("last_feed_seen_at,last_feed_seen_week_id")
+            .eq("id", value: currentUserID)
+            .limit(1)
+            .execute()
+
+        let rows = try JSONDecoder.bublDecoder.decode([FeedSeenState].self, from: response.data)
+        return rows.first
+    }
+
+    private func countUnseenRelatedBubls(in bubls: [Bubl], seenState: FeedSeenState?, weekID: String) -> Int {
+        guard !bubls.isEmpty else { return 0 }
+        guard let seenState else { return bubls.count }
+        guard seenState.lastFeedSeenWeekID == weekID else { return bubls.count }
+        guard let lastFeedSeenAt = seenState.lastFeedSeenAt else { return bubls.count }
+        return bubls.filter { $0.createdAt > lastFeedSeenAt }.count
+    }
+
+    private func markFeedSeen(currentUserID: UUID, weekID: String) async throws {
+        guard myBubl != nil else { return }
+
+        struct FeedSeenUpdate: Encodable {
+            let last_feed_seen_at: Date
+            let last_feed_seen_week_id: String
+        }
+
+        _ = try await client
+            .from("users")
+            .update(
+                FeedSeenUpdate(
+                    last_feed_seen_at: .now,
+                    last_feed_seen_week_id: weekID
+                )
+            )
+            .eq("id", value: currentUserID)
+            .execute()
     }
 
     private func log(_ message: String) {
@@ -1103,10 +1154,22 @@ final class FeedViewModel {
 private struct FeedPayload: Decodable {
     let myBubl: Bubl?
     let relatedBubls: [Bubl]
+    let newRelatedCount: Int
 
     enum CodingKeys: String, CodingKey {
         case myBubl = "my_bubl"
         case relatedBubls = "related_bubls"
+        case newRelatedCount = "new_related_count"
+    }
+}
+
+private struct FeedSeenState: Decodable {
+    let lastFeedSeenAt: Date?
+    let lastFeedSeenWeekID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case lastFeedSeenAt = "last_feed_seen_at"
+        case lastFeedSeenWeekID = "last_feed_seen_week_id"
     }
 }
 
@@ -1137,24 +1200,133 @@ final class ReactionsViewModel {
     }
 
     func submit(kind: ReactionKind, bublID: UUID, userID: UUID) async {
-        struct NewReaction: Encodable {
+        struct TypedReaction: Encodable {
             let bubl_id: UUID
             let user_id: UUID
             let type: String
+            let text: String
+        }
+
+        struct LegacyReaction: Encodable {
+            let bubl_id: UUID
+            let user_id: UUID
+            let text: String
+        }
+
+        struct ExistingReactionRow: Decodable {
+            let id: UUID
         }
 
         do {
-            _ = try await client
-                .from("reactions")
-                .upsert(
-                    NewReaction(bubl_id: bublID, user_id: userID, type: kind.rawValue),
-                    onConflict: "bubl_id,user_id"
-                )
-                .execute()
+            do {
+                try await submitTypedReaction(kind: kind, bublID: bublID, userID: userID)
+            } catch {
+                let message = error.localizedDescription.lowercased()
+                if message.contains("could not find the 'type' column")
+                    || message.contains("column reactions.type does not exist")
+                    || message.contains("schema cache") {
+                    try await submitLegacyReaction(kind: kind, bublID: bublID, userID: userID)
+                } else {
+                    throw error
+                }
+            }
 
             await load(bublID: bublID)
         } catch {
-            errorMessage = "No pudimos guardar tu reaccion."
+            errorMessage = "No pudimos guardar tu reaccion. \(error.localizedDescription)"
+        }
+
+        func submitTypedReaction(kind: ReactionKind, bublID: UUID, userID: UUID) async throws {
+            do {
+                _ = try await client
+                    .from("reactions")
+                    .upsert(
+                        TypedReaction(
+                            bubl_id: bublID,
+                            user_id: userID,
+                            type: kind.rawValue,
+                            text: kind.label
+                        ),
+                        onConflict: "bubl_id,user_id"
+                    )
+                    .execute()
+            } catch {
+                if requiresManualConflictFallback(error) {
+                    try await upsertReactionManually(
+                        bublID: bublID,
+                        userID: userID,
+                        values: [
+                            "bubl_id": AnyJSON.string(bublID.uuidString),
+                            "user_id": AnyJSON.string(userID.uuidString),
+                            "type": AnyJSON.string(kind.rawValue),
+                            "text": AnyJSON.string(kind.label)
+                        ]
+                    )
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        func submitLegacyReaction(kind: ReactionKind, bublID: UUID, userID: UUID) async throws {
+            do {
+                _ = try await client
+                    .from("reactions")
+                    .upsert(
+                        LegacyReaction(
+                            bubl_id: bublID,
+                            user_id: userID,
+                            text: kind.label
+                        ),
+                        onConflict: "bubl_id,user_id"
+                    )
+                    .execute()
+            } catch {
+                if requiresManualConflictFallback(error) {
+                    try await upsertReactionManually(
+                        bublID: bublID,
+                        userID: userID,
+                        values: [
+                            "bubl_id": AnyJSON.string(bublID.uuidString),
+                            "user_id": AnyJSON.string(userID.uuidString),
+                            "text": AnyJSON.string(kind.label)
+                        ]
+                    )
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        func upsertReactionManually(bublID: UUID, userID: UUID, values: [String: AnyJSON]) async throws {
+            let response = try await client
+                .from("reactions")
+                .select("id")
+                .eq("bubl_id", value: bublID)
+                .eq("user_id", value: userID)
+                .limit(1)
+                .execute()
+
+            let rows = try JSONDecoder.bublDecoder.decode([ExistingReactionRow].self, from: response.data)
+
+            if let existing = rows.first {
+                _ = try await client
+                    .from("reactions")
+                    .update(values)
+                    .eq("id", value: existing.id)
+                    .execute()
+            } else {
+                _ = try await client
+                    .from("reactions")
+                    .insert(values)
+                    .execute()
+            }
+        }
+
+        func requiresManualConflictFallback(_ error: Error) -> Bool {
+            let message = error.localizedDescription.lowercased()
+            return message.contains("no unique or exclusion constraint")
+                || message.contains("on conflict specification")
         }
     }
 }
